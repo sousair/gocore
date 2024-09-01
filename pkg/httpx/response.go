@@ -14,6 +14,10 @@ func NewBadRequestResponse(e echo.Context, err error) error {
 	return e.JSON(http.StatusBadRequest, response{Message: err.Error()})
 }
 
+func NewUnauthorizedResponse(e echo.Context, err error) error {
+	return e.JSON(http.StatusUnauthorized, response{Message: err.Error()})
+}
+
 func NewInternalServerErrorResponse(e echo.Context, err error) error {
 	return e.JSON(http.StatusInternalServerError, response{Message: err.Error()})
 }
