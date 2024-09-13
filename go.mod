@@ -1,4 +1,4 @@
-module github.com/sousair/gocorepkg
+module github.com/sousair/gocore
 
 go 1.22.3
 

@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/sousair/gocorepkg/pkg/database"
-	"github.com/sousair/gocorepkg/pkg/database/entity"
+	"github.com/sousair/gocore/pkg/database"
+	"github.com/sousair/gocore/pkg/database/entity"
 	"gorm.io/gorm"
 )
 
