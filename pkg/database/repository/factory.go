@@ -10,11 +10,22 @@ import (
 	"gorm.io/gorm"
 )
 
-type Repository[T entity.Entity] struct {
+type Repository[T entity.Entity] interface {
+	DB() *gorm.DB
+	Tx(ctx context.Context, txFn func(context.Context) error) error
+	Create(ctx context.Context, entity *T) (*T, error)
+	Update(ctx context.Context, entity *T) (*T, error)
+	FindOne(ctx context.Context, entity *T, opts ...Option) (*T, error)
+	FindAll(ctx context.Context, query *T, opts ...Option) ([]*T, error)
+	FindLast(ctx context.Context, query *T, opts ...Option) (*T, error)
+	Query(ctx context.Context, query string, values ...interface{}) (*sql.Rows, error)
+}
+
+type repository[T entity.Entity] struct {
 	db *gorm.DB
 }
 
-func NewRepository[T entity.Entity](db *gorm.DB) (*Repository[T], error) {
+func NewRepository[T entity.Entity](db *gorm.DB) (*repository[T], error) {
 	var rawEntity any = new(T)
 
 	entity, ok := rawEntity.(entity.Entity)
@@ -27,20 +38,20 @@ func NewRepository[T entity.Entity](db *gorm.DB) (*Repository[T], error) {
 		return nil, err
 	}
 
-	return &Repository[T]{db}, nil
+	return &repository[T]{db}, nil
 }
 
-func (r *Repository[T]) DB() *gorm.DB {
+func (r *repository[T]) DB() *gorm.DB {
 	return r.db
 }
 
-func (r *Repository[T]) Tx(ctx context.Context, txFn func(context.Context) error) error {
+func (r *repository[T]) Tx(ctx context.Context, txFn func(context.Context) error) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		return txFn(WithTx(ctx, tx))
 	})
 }
 
-func (r *Repository[T]) Create(ctx context.Context, entity *T) (*T, error) {
+func (r *repository[T]) Create(ctx context.Context, entity *T) (*T, error) {
 	tx := r.db
 	if dbTx, err := FromContext(ctx); err == nil {
 		tx = dbTx
@@ -53,7 +64,7 @@ func (r *Repository[T]) Create(ctx context.Context, entity *T) (*T, error) {
 	return entity, nil
 }
 
-func (r *Repository[T]) Update(ctx context.Context, entity *T) (*T, error) {
+func (r *repository[T]) Update(ctx context.Context, entity *T) (*T, error) {
 	tx := r.db
 	if dbTx, err := FromContext(ctx); err == nil {
 		tx = dbTx
@@ -66,7 +77,7 @@ func (r *Repository[T]) Update(ctx context.Context, entity *T) (*T, error) {
 	return entity, nil
 }
 
-func (r *Repository[T]) FindOne(ctx context.Context, entity *T, opts ...Option) (*T, error) {
+func (r *repository[T]) FindOne(ctx context.Context, entity *T, opts ...Option) (*T, error) {
 	tx := r.db
 	if dbTx, err := FromContext(ctx); err == nil {
 		tx = dbTx
@@ -86,7 +97,7 @@ func (r *Repository[T]) FindOne(ctx context.Context, entity *T, opts ...Option) 
 	return entity, nil
 }
 
-func (r *Repository[T]) FindAll(ctx context.Context, query *T, opts ...Option) ([]*T, error) {
+func (r *repository[T]) FindAll(ctx context.Context, query *T, opts ...Option) ([]*T, error) {
 	tx := r.db
 	if dbTx, err := FromContext(ctx); err == nil {
 		tx = dbTx
@@ -107,7 +118,7 @@ func (r *Repository[T]) FindAll(ctx context.Context, query *T, opts ...Option) (
 	return res, nil
 }
 
-func (r *Repository[T]) FindLast(ctx context.Context, query *T, opts ...Option) (*T, error) {
+func (r *repository[T]) FindLast(ctx context.Context, query *T, opts ...Option) (*T, error) {
 	tx := r.db
 	if dbTx, err := FromContext(ctx); err == nil {
 		tx = dbTx
@@ -127,7 +138,7 @@ func (r *Repository[T]) FindLast(ctx context.Context, query *T, opts ...Option) 
 	return query, nil
 }
 
-func (r *Repository[T]) Query(ctx context.Context, query string, values ...interface{}) (*sql.Rows, error) {
+func (r *repository[T]) Query(ctx context.Context, query string, values ...interface{}) (*sql.Rows, error) {
 	q := r.db.Raw(query, values)
 	rows, err := q.Rows()
 	defer rows.Close()
