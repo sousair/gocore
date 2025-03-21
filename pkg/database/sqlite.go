@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewSQLite(cfg *gorm.Config) (*gorm.DB, error) {
+func NewSQLite(options ...Option) (*gorm.DB, error) {
 	filePath := os.Getenv("DB_FILE_PATH")
 
 	if filePath == "" {
@@ -17,7 +17,14 @@ func NewSQLite(cfg *gorm.Config) (*gorm.DB, error) {
 		filePath = "file::memory:?cache=shared"
 	}
 
-	cfg = setupConfig(cfg)
+	opts := &opts{}
+	for _, option := range options {
+		option(opts)
+	}
 
-	return gorm.Open(sqlite.Open(filePath), cfg)
+	if opts.config == nil {
+		opts.config = defaultConfig
+	}
+
+	return gorm.Open(sqlite.Open(filePath), opts.config)
 }

@@ -10,7 +10,7 @@ import (
 
 const POSTGRES_DSN = "postgresql://%s:%s@%s:%s/%s"
 
-func NewPostgres(cfg *gorm.Config) (*gorm.DB, error) {
+func NewPostgres(options ...Option) (*gorm.DB, error) {
 	username, ok := os.LookupEnv("DB_USERNAME")
 	if !ok {
 		return nil, ErrUsernameNotSet
@@ -36,9 +36,16 @@ func NewPostgres(cfg *gorm.Config) (*gorm.DB, error) {
 		return nil, ErrNameNotSet
 	}
 
-	connectionString := fmt.Sprintf(POSTGRES_DSN, username, password, host, port, name)
+	connStr := fmt.Sprintf(POSTGRES_DSN, username, password, host, port, name)
 
-	cfg = setupConfig(cfg)
+	opts := opts{}
+	for _, option := range options {
+		option(&opts)
+	}
 
-	return gorm.Open(postgres.Open(connectionString), cfg)
+	if opts.config == nil {
+		opts.config = defaultConfig
+	}
+
+	return gorm.Open(postgres.Open(connStr), opts.config)
 }
