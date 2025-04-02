@@ -15,6 +15,7 @@ type Repository[T entity.Entity] interface {
 	Tx(ctx context.Context, txFn func(context.Context) error) error
 	Create(ctx context.Context, entity *T) (*T, error)
 	Update(ctx context.Context, entity *T) (*T, error)
+	Delete(ctx context.Context, query *T) error
 	FindOne(ctx context.Context, entity *T, opts ...Option) (*T, error)
 	FindAll(ctx context.Context, query *T, opts ...Option) ([]*T, error)
 	FindLast(ctx context.Context, query *T, opts ...Option) (*T, error)
@@ -24,6 +25,8 @@ type Repository[T entity.Entity] interface {
 type repository[T entity.Entity] struct {
 	db *gorm.DB
 }
+
+var _ Repository[entity.Entity] = (*repository[entity.Entity])(nil)
 
 func NewRepository[T entity.Entity](db *gorm.DB) (*repository[T], error) {
 	var rawEntity any = new(T)
@@ -75,6 +78,19 @@ func (r *repository[T]) Update(ctx context.Context, entity *T) (*T, error) {
 	}
 
 	return entity, nil
+}
+
+func (r *repository[T]) Delete(ctx context.Context, entity *T) error {
+	tx := r.db
+	if dbTx, err := FromContext(ctx); err == nil {
+		tx = dbTx
+	}
+
+	if err := tx.Delete(entity).Error; err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *repository[T]) FindOne(ctx context.Context, entity *T, opts ...Option) (*T, error) {
