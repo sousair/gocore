@@ -33,3 +33,7 @@ func NewOKResponse(e echo.Context, data any) error {
 func NewCreatedResponse(e echo.Context, data any) error {
 	return e.JSON(http.StatusCreated, data)
 }
+
+func NewNoContentResponse(e echo.Context) error {
+	return e.NoContent(http.StatusNoContent)
+}
