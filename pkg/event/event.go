@@ -3,30 +3,39 @@ package event
 import (
 	"time"
 
-	"golang.org/x/net/context"
+	"context"
 )
-
-type EventOption struct {
-	MaxRetries int
-	Delay      time.Duration
-	ProcessAt  time.Time
-}
 
 type EventType string
 
-func (et EventType) String() string {
-	return string(et)
+func (t EventType) String() string {
+	return string(t)
 }
 
 type Event struct {
-	Type    EventType   `json:"type"`
-	Payload interface{} `json:"payload"`
+	Type    EventType `json:"type"`
+	Payload any       `json:"payload"`
 }
 
-type EmitHandler func(ctx context.Context, event *Event, opt *EventOption) error
+type (
+	Option func(*EventOptions)
 
-type EmitOption func(*EventOption)
+	EventOptions struct {
+		MaxRetries int
+		Delay      time.Duration
+		ProcessAt  time.Time
+		Metadata   map[string]any
+	}
+)
 
-type EventEmitter interface {
-	Emit(ctx context.Context, event *Event, opts ...EmitOption) error
-}
+type (
+	Emitter interface {
+		Emit(context.Context, *Event, ...Option) error
+		Shutdown(context.Context) error
+	}
+
+	Listener interface {
+		Listen() error
+		Shutdown(context.Context) error
+	}
+)

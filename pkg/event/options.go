@@ -2,37 +2,26 @@ package event
 
 import "time"
 
-// Option
-
-func WithPrefixEmitHandler(prefix string, handler EmitHandler) Option {
-	return func(e *eventEmitter) {
-		e.prefixes = append(e.prefixes, prefix)
-		e.handlers[EventType(prefix)] = handler
-	}
-}
-
-func WithEmitHandler(eventType EventType, handler EmitHandler) Option {
-	return func(e *eventEmitter) {
-		e.handlers[eventType] = handler
-	}
-}
-
-// EmitOption
-
-func WithMaxRetries(maxRetries int) EmitOption {
-	return func(eo *EventOption) {
+func WithMaxRetries(maxRetries int) Option {
+	return func(eo *EventOptions) {
 		eo.MaxRetries = maxRetries
 	}
 }
 
-func WithDelay(delay time.Duration) EmitOption {
-	return func(eo *EventOption) {
+func WithDelay(delay time.Duration) Option {
+	return func(eo *EventOptions) {
 		eo.Delay = delay
 	}
 }
 
-func WithProcessAt(processAt time.Time) EmitOption {
-	return func(eo *EventOption) {
+func WithProcessAt(processAt time.Time) Option {
+	return func(eo *EventOptions) {
 		eo.ProcessAt = processAt
+	}
+}
+
+func WithMetadata(metadata map[string]any) Option {
+	return func(eo *EventOptions) {
+		eo.Metadata = metadata
 	}
 }
