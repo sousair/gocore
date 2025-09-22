@@ -20,7 +20,8 @@ type (
 )
 
 type jwt[T any] struct {
-	secret         []byte
+	secret []byte
+	// TODO: Put this on a option of Generate Method
 	expirationInMs int
 }
 
@@ -38,7 +39,6 @@ func (j *jwt[T]) Generate(payload *T) (string, error) {
 	token := jwtgo.NewWithClaims(jwtgo.SigningMethodHS256, tokenPayload[T]{
 		Payload: payload,
 		StandardClaims: jwtgo.StandardClaims{
-			// TODO: Check this
 			ExpiresAt: jwtgo.TimeFunc().Add(time.Millisecond * time.Duration(j.expirationInMs)).Unix(),
 		},
 	})
@@ -49,7 +49,7 @@ func (j *jwt[T]) Generate(payload *T) (string, error) {
 func (j *jwt[T]) Validate(token string) (*T, error) {
 	claims := &tokenPayload[T]{}
 
-	t, err := jwtgo.ParseWithClaims(token, claims, func(token *jwtgo.Token) (interface{}, error) {
+	t, err := jwtgo.ParseWithClaims(token, claims, func(token *jwtgo.Token) (any, error) {
 		return j.secret, nil
 	})
 	if err != nil {
