@@ -7,13 +7,13 @@ import (
 
 type Option func(*gorm.DB) *gorm.DB
 
-func WithPreload(association string) Option {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Preload(association)
+func WithRelation(association string) Option {
+	return func(d *gorm.DB) *gorm.DB {
+		return d.Preload(association)
 	}
 }
 
-func WithPreloadAll() Option {
+func WithAllRelations() Option {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Preload(clause.Associations)
 	}
