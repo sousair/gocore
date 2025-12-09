@@ -79,6 +79,8 @@ func (r paginateRepository[E, query]) FindAllWithPages(
 		tx = opt(tx)
 	}
 
+	tx = tx.Model(new(E))
+
 	res := &PaginationResponse[E]{}
 	if err := tx.
 		Count(&res.Total).Error; err != nil {
