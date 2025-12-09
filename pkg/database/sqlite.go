@@ -23,7 +23,7 @@ func NewSQLite(options ...Option) (*gorm.DB, error) {
 	}
 
 	if opts.config == nil {
-		opts.config = defaultConfig
+		opts.config = &gorm.Config{}
 	}
 
 	return gorm.Open(sqlite.Open(filePath), opts.config)

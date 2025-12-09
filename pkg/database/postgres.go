@@ -61,7 +61,7 @@ func NewPostgres(options ...Option) (*gorm.DB, error) {
 	}
 
 	if opts.config == nil {
-		opts.config = defaultConfig
+		opts.config = &gorm.Config{}
 	}
 
 	return gorm.Open(postgres.Open(connStr), opts.config)
