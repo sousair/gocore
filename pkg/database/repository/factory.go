@@ -215,7 +215,7 @@ func (r *repository[T]) Reload(ctx context.Context, entity *T, opts ...Option) e
 	return nil
 }
 
-func (r *repository[T]) Query(ctx context.Context, query string, values ...interface{}) (*sql.Rows, error) {
+func (r *repository[T]) Query(ctx context.Context, query string, values ...any) (*sql.Rows, error) {
 	q := r.db.Raw(query, values)
 	rows, err := q.Rows()
 	defer rows.Close()
