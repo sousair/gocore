@@ -3,6 +3,5 @@ package cache
 import "errors"
 
 var (
-	ErrHostNotSet = errors.New("REDIS_HOST is not set")
-	ErrPortNotSet = errors.New("REDIS_PORT is not set")
+	ErrKeyNotFound = errors.New("key not found")
 )
