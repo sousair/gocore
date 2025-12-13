@@ -2,13 +2,20 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/sousair/gocore/pkg/cache"
 )
 
 const (
 	CRON_DEFAULT_TIMEOUT  = time.Minute
 	CRON_DEFAULT_INTERVAL = time.Second
+
+	SINGLE_RUNNER_CACHE_KEY = "cw_single:%s"
 )
 
 type CronJob interface {
@@ -17,16 +24,11 @@ type CronJob interface {
 }
 
 type cronOptions struct {
-	Interval time.Duration
+	Interval     time.Duration
+	SingleRunner bool
 }
 
 type CronOption func(*cronOptions)
-
-func WithCronInterval(interval time.Duration) CronOption {
-	return func(co *cronOptions) {
-		co.Interval = interval
-	}
-}
 
 type cronJob struct {
 	Handle  func(context.Context) error
@@ -34,16 +36,20 @@ type cronJob struct {
 }
 
 type CronWorker struct {
-	jobs map[string]*cronJob
+	ID            uuid.UUID
+	jobs          map[string]*cronJob
+	singleRunners []string
+	cache         cache.Cache
 }
 
-func NewCronWorker() *CronWorker {
+func NewCronWorker(cache cache.Cache) *CronWorker {
 	return &CronWorker{
-		jobs: make(map[string]*cronJob),
+		ID:    uuid.New(),
+		jobs:  make(map[string]*cronJob),
+		cache: cache,
 	}
 }
 
-// Use WithCronInterval to set options
 func (cw *CronWorker) RegisterJob(job CronJob, opts ...CronOption) {
 	options := &cronOptions{
 		Interval: CRON_DEFAULT_INTERVAL,
@@ -59,25 +65,134 @@ func (cw *CronWorker) RegisterJob(job CronJob, opts ...CronOption) {
 	}
 }
 
-func (cw CronWorker) Start(ctx context.Context) {
+func (cw *CronWorker) Start(ctx context.Context) {
 	for name, job := range cw.jobs {
+		jobOptions := job.Options
+		if jobOptions.SingleRunner {
+			ellected, err := cw.checkAndRegisterSingleRunner(ctx, name)
+			if err != nil {
+				slog.ErrorContext(ctx,
+					"[CronWorker] Error checking single runner",
+					slog.String("job", name),
+					slog.Any("error", err),
+				)
+			}
+
+			if !ellected {
+				slog.InfoContext(ctx,
+					"[CronWorker] Another instance is already running the job",
+					slog.String("job", name),
+				)
+				continue
+			}
+
+			cw.singleRunners = append(cw.singleRunners, name)
+		}
+
 		go func(name string, job *cronJob) {
 			for {
-				jobOptions := job.Options
 				select {
 				case <-ctx.Done():
-					fmt.Printf("[CronWorker] Stopping (%s) job \n", name)
+					slog.InfoContext(ctx,
+						"[CronWorker] Stopping job due to context done",
+						slog.String("job", name),
+					)
 				case <-time.After(jobOptions.Interval):
-					fmt.Printf("[CronWorker] Running (%s) job \n", name)
+					slog.InfoContext(ctx,
+						"[CronWorker] Triggering job",
+						slog.String("job", name),
+					)
 
 					if err := job.Handle(ctx); err != nil {
-						fmt.Printf("[CronWorker] Job (%s) returned error: %v \n", name, err)
+						slog.ErrorContext(ctx,
+							"[CronWorker] Job returned error",
+							slog.String("job", name),
+							slog.Any("error", err),
+						)
 					}
 
-					fmt.Printf("[CronWorker] Job (%s) finished \n", name)
+					slog.InfoContext(ctx,
+						"[CronWorker] Job finished",
+						slog.String("job", name),
+					)
 				}
 
 			}
 		}(name, job)
 	}
+}
+
+func (cw CronWorker) checkAndRegisterSingleRunner(ctx context.Context, name string) (bool, error) {
+	cacheKey := fmt.Sprintf(SINGLE_RUNNER_CACHE_KEY, name)
+
+	value, err := cw.cache.Get(ctx, cacheKey)
+	if err != nil {
+		if !errors.Is(err, cache.ErrKeyNotFound) {
+			return false, err
+		}
+	}
+
+	if value != "" {
+		slog.InfoContext(ctx,
+			"[CronWorker] Single runner already registered",
+			slog.String("job", name),
+			slog.String("runner_id", value),
+		)
+		return false, nil
+	}
+
+	release, err := cw.cache.Lock(ctx, cacheKey,
+		cache.WithLockRetries(2),
+		cache.WithLockRetryDelay(250*time.Millisecond),
+	)
+	if err != nil {
+		slog.ErrorContext(ctx,
+			"[CronWorker] Failed to acquire lock for single runner",
+			slog.String("job", name),
+			slog.Any("error", err),
+		)
+		return false, err
+	}
+	defer func() {
+		if err := release(ctx); err != nil {
+			slog.ErrorContext(ctx,
+				"[CronWorker] Failed to release lock",
+				slog.String("job", name),
+				slog.Any("error", err),
+			)
+		}
+	}()
+
+	if err := cw.cache.Set(ctx, cacheKey, cw.ID.String()); err != nil {
+		slog.ErrorContext(ctx,
+			"[CronWorker] Failed to register single runner",
+			slog.String("job", name),
+			slog.Any("error", err),
+		)
+		return false, err
+	}
+
+	slog.InfoContext(ctx,
+		"[CronWorker] Registered as single runner",
+		slog.String("job", name),
+		slog.String("runner_id", cw.ID.String()),
+	)
+	return true, nil
+}
+
+func (cw CronWorker) Shutdown(ctx context.Context) error {
+	for _, name := range cw.singleRunners {
+		cacheKey := fmt.Sprintf(SINGLE_RUNNER_CACHE_KEY, name)
+		err := cw.cache.Del(ctx, cacheKey)
+		if err != nil {
+			slog.ErrorContext(ctx,
+				"[CronWorker] Failed to deregister single runner on shutdown",
+				slog.String("job", name),
+				slog.Any("error", err),
+			)
+			return err
+		}
+	}
+
+	return nil
 }

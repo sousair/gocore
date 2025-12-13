@@ -15,12 +15,12 @@ import (
 	"github.com/sousair/gocore/pkg/cache"
 )
 
-type redisC struct {
+type Redis struct {
 	c  *redis.Client
 	rs *redsync.Redsync
 }
 
-var _ cache.Cache = (*redisC)(nil)
+var _ cache.Cache = (*Redis)(nil)
 
 const redisAddrPattern = "%s:%s"
 
@@ -30,7 +30,7 @@ const (
 	DEFAULT_POOL_TIMEOUT_SEC     = 5
 )
 
-func New() (*redisC, error) {
+func New() (*Redis, error) {
 	host, ok := os.LookupEnv("REDIS_HOST")
 	if !ok {
 		return nil, ErrHostNotSet
@@ -87,17 +87,17 @@ func New() (*redisC, error) {
 
 	c := redis.NewClient(clientOpts)
 
-	return &redisC{
+	return &Redis{
 		c:  c,
 		rs: redsync.New(goredis.NewPool(c)),
 	}, nil
 }
 
-func (c *redisC) GetClient() *redis.Client {
+func (c *Redis) GetClient() *redis.Client {
 	return c.c
 }
 
-func (c *redisC) Set(ctx context.Context, key string, value string, opts ...cache.SetOption) error {
+func (c *Redis) Set(ctx context.Context, key string, value string, opts ...cache.SetOption) error {
 	setOpts := &cache.SetOptions{}
 	for _, opt := range opts {
 		opt(setOpts)
@@ -106,7 +106,7 @@ func (c *redisC) Set(ctx context.Context, key string, value string, opts ...cach
 	return c.c.Set(ctx, key, value, setOpts.TTL).Err()
 }
 
-func (c *redisC) Get(ctx context.Context, key string) (string, error) {
+func (c *Redis) Get(ctx context.Context, key string) (string, error) {
 	val, err := c.c.Get(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -119,11 +119,11 @@ func (c *redisC) Get(ctx context.Context, key string) (string, error) {
 	return val, nil
 }
 
-func (c *redisC) Del(ctx context.Context, key string) error {
+func (c *Redis) Del(ctx context.Context, key string) error {
 	return c.c.Del(ctx, key).Err()
 }
 
-func (c *redisC) Lock(ctx context.Context, lockKey string, opts ...cache.LockOption) (cache.UnlockFn, error) {
+func (c *Redis) Lock(ctx context.Context, lockKey string, opts ...cache.LockOption) (cache.UnlockFn, error) {
 	opt := new(cache.LockOptions)
 	for _, o := range opts {
 		o(opt)
