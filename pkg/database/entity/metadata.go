@@ -6,7 +6,7 @@ type WithMetadata[T any] struct {
 	Metadata json.RawMessage `json:"metadata" gorm:"type:jsonb"`
 }
 
-func (e *WithMetadata[T]) GetMetadata() (*T, error) {
+func (e WithMetadata[T]) GetMetadata() (*T, error) {
 	if e.Metadata == nil {
 		return new(T), nil
 	}
@@ -17,4 +17,19 @@ func (e *WithMetadata[T]) GetMetadata() (*T, error) {
 	}
 
 	return metadata, nil
+}
+
+func (e *WithMetadata[T]) SetMetadata(metadata *T) error {
+	if metadata == nil {
+		e.Metadata = nil
+		return nil
+	}
+
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+
+	e.Metadata = data
+	return nil
 }
