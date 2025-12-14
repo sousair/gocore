@@ -17,8 +17,8 @@ type asynq struct {
 var _ event.Emitter = (*asynq)(nil)
 var _ event.Listener = (*asynq)(nil)
 
-func New(redisClient *redis.UniversalClient) *asynq {
-	client := asynqp.NewClientFromRedisClient(*redisClient)
+func New(redisClient redis.UniversalClient) *asynq {
+	client := asynqp.NewClientFromRedisClient(redisClient)
 	mux := asynqp.NewServeMux()
 
 	return &asynq{
