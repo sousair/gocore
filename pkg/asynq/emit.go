@@ -3,7 +3,7 @@ package asynq
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	asynqp "github.com/hibiken/asynq"
 	"github.com/sousair/gocore/pkg/event"
@@ -50,7 +50,10 @@ func (a *asynq) Emit(ctx context.Context, e *event.Event, opts ...event.Option) 
 		return err
 	}
 
-	log.Printf("[Asynq] Enqueued task: id=%s queue=%s", info.ID, info.Queue)
+	slog.InfoContext(ctx, "[Asynq] Enqueued task",
+		slog.String("id", info.ID),
+		slog.String("queue", info.Queue),
+	)
 
 	return nil
 }

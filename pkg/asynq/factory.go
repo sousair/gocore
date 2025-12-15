@@ -10,8 +10,9 @@ import (
 )
 
 type asynq struct {
-	client    *asynqp.Client
-	muxServer *asynqp.ServeMux
+	redisClient redis.UniversalClient
+	client      *asynqp.Client
+	muxServer   *asynqp.ServeMux
 }
 
 var _ event.Emitter = (*asynq)(nil)
@@ -22,8 +23,9 @@ func New(redisClient redis.UniversalClient) *asynq {
 	mux := asynqp.NewServeMux()
 
 	return &asynq{
-		client:    client,
-		muxServer: mux,
+		redisClient: redisClient,
+		client:      client,
+		muxServer:   mux,
 	}
 }
 

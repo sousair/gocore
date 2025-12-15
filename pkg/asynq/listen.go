@@ -9,10 +9,11 @@ import (
 
 type HandlerFunc func(ctx context.Context, t *asynqp.Task) error
 
-func (a *asynq) AddHandler(eventType event.EventType, handler HandlerFunc) {
+func (a asynq) AddHandler(eventType event.EventType, handler HandlerFunc) {
 	a.muxServer.HandleFunc(eventType.String(), handler)
 }
 
-func (a *asynq) Listen() error {
-	return nil
+func (a asynq) Listen() error {
+	server := asynqp.NewServerFromRedisClient(a.redisClient, asynqp.Config{})
+	return server.Run(a.muxServer)
 }
