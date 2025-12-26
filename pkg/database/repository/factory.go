@@ -40,7 +40,6 @@ func New[T entity.Entity](db *gorm.DB) (*repository[T], error) {
 	var rawEntity any = new(T)
 
 	entity, ok := rawEntity.(entity.Entity)
-
 	if !ok {
 		return nil, database.ErrBadEntity
 	}
@@ -218,7 +217,9 @@ func (r *repository[T]) Reload(ctx context.Context, entity *T, opts ...Option) e
 func (r *repository[T]) Query(ctx context.Context, query string, values ...any) (*sql.Rows, error) {
 	q := r.db.Raw(query, values)
 	rows, err := q.Rows()
-	defer rows.Close()
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 
 	if err != nil {
 		return nil, err
