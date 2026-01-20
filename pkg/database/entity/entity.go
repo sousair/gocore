@@ -28,7 +28,10 @@ func (e BaseEntity) GetID() uuid.UUID {
 
 func (e *BaseEntity) BeforeCreate(tx *gorm.DB) (err error) {
 	if e.ID == uuid.Nil {
-		e.ID = uuid.New()
+		e.ID, err = uuid.NewV7()
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
