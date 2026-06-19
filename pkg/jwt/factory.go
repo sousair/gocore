@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	jwtgo "github.com/dgrijalva/jwt-go"
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
 type (
@@ -14,14 +14,13 @@ type (
 	}
 
 	tokenPayload[T any] struct {
-		jwtgo.StandardClaims
+		jwtv5.RegisteredClaims
 		Payload *T `json:"payload"`
 	}
 )
 
 type jwt[T any] struct {
-	secret []byte
-	// TODO: Put this on a option of Generate Method
+	secret         []byte
 	expirationInMs int
 }
 
@@ -31,15 +30,16 @@ var ErrInvalidToken = errors.New("invalid token")
 
 func New[T any](secret string, expirationInMs int) JWT[T] {
 	return &jwt[T]{
-		secret: []byte(secret),
+		secret:         []byte(secret),
+		expirationInMs: expirationInMs,
 	}
 }
 
 func (j *jwt[T]) Generate(payload *T) (string, error) {
-	token := jwtgo.NewWithClaims(jwtgo.SigningMethodHS256, tokenPayload[T]{
+	token := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, tokenPayload[T]{
 		Payload: payload,
-		StandardClaims: jwtgo.StandardClaims{
-			ExpiresAt: jwtgo.TimeFunc().Add(time.Millisecond * time.Duration(j.expirationInMs)).Unix(),
+		RegisteredClaims: jwtv5.RegisteredClaims{
+			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(time.Duration(j.expirationInMs) * time.Millisecond)),
 		},
 	})
 
@@ -49,14 +49,10 @@ func (j *jwt[T]) Generate(payload *T) (string, error) {
 func (j *jwt[T]) Validate(token string) (*T, error) {
 	claims := &tokenPayload[T]{}
 
-	t, err := jwtgo.ParseWithClaims(token, claims, func(token *jwtgo.Token) (any, error) {
+	t, err := jwtv5.ParseWithClaims(token, claims, func(token *jwtv5.Token) (any, error) {
 		return j.secret, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if !t.Valid {
+	}, jwtv5.WithValidMethods([]string{"HS256"}))
+	if err != nil || !t.Valid {
 		return nil, ErrInvalidToken
 	}
 
