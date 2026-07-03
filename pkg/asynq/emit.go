@@ -50,7 +50,7 @@ func (a *asynq) Emit(ctx context.Context, e *event.Event, opts ...event.Option) 
 		return err
 	}
 
-	slog.InfoContext(ctx, "[Asynq] Enqueued task",
+	slog.InfoContext(ctx, "asynq.task_enqueued",
 		slog.String("id", info.ID),
 		slog.String("queue", info.Queue),
 	)

@@ -86,4 +86,3 @@ func TestClient_Embed_EmptyResponse(t *testing.T) {
 		t.Error("want error for empty response, got nil")
 	}
 }
-

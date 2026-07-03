@@ -1,7 +1,7 @@
 package database
 
 import (
-	"log"
+	"log/slog"
 	"os"
 
 	"gorm.io/driver/sqlite"
@@ -12,9 +12,9 @@ func NewSQLite(options ...Option) (*gorm.DB, error) {
 	filePath := os.Getenv("DB_FILE_PATH")
 
 	if filePath == "" {
-		log.Println("DB_FILE_PATH is not set, using system memory instead")
-
 		filePath = "file::memory:?cache=shared"
+
+		slog.Warn("sqlite.env_default", "var", "DB_FILE_PATH", "default", filePath) //nolint:sloglint // no ctx at construction
 	}
 
 	opts := &opts{}

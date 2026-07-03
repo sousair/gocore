@@ -13,6 +13,7 @@ import (
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/sousair/gocore/pkg/cache"
+	"github.com/sousair/gocore/pkg/telemetry"
 )
 
 type Redis struct {
@@ -52,9 +53,7 @@ func New() (*Redis, error) {
 		}
 		clientOpts.MinIdleConns = conv
 	} else {
-		slog.Warn("REDIS_MIN_IDLE_CONNECTIONS is not set, using default",
-			slog.Int("DEFAULT_MIN_IDLE_CONNECTIONS", DEFAULT_MIN_IDLE_CONNECTIONS),
-		)
+		slog.Warn("redis.env_default", "var", "REDIS_MIN_IDLE_CONNECTIONS", "default", DEFAULT_MIN_IDLE_CONNECTIONS) //nolint:sloglint // no ctx at construction
 		clientOpts.MinIdleConns = DEFAULT_MIN_IDLE_CONNECTIONS
 	}
 
@@ -65,9 +64,7 @@ func New() (*Redis, error) {
 		}
 		clientOpts.PoolSize = conv
 	} else {
-		slog.Warn("REDIS_MAX_CONNECTIONS is not set, using default",
-			slog.Int("DEFAULT_MAX_CONNECTIONS", DEFAULT_MAX_CONNECTIONS),
-		)
+		slog.Warn("redis.env_default", "var", "REDIS_MAX_CONNECTIONS", "default", DEFAULT_MAX_CONNECTIONS) //nolint:sloglint // no ctx at construction
 		clientOpts.PoolSize = DEFAULT_MAX_CONNECTIONS
 	}
 
@@ -79,9 +76,7 @@ func New() (*Redis, error) {
 
 		clientOpts.PoolTimeout = time.Duration(conv) * time.Second
 	} else {
-		slog.Warn("REDIS_POOL_TIMEOUT_SEC is not set, using default",
-			slog.Int("DEFAULT_POOL_TIMEOUT_SEC", DEFAULT_POOL_TIMEOUT_SEC),
-		)
+		slog.Warn("redis.env_default", "var", "REDIS_POOL_TIMEOUT_SEC", "default", DEFAULT_POOL_TIMEOUT_SEC) //nolint:sloglint // no ctx at construction
 		clientOpts.PoolTimeout = DEFAULT_POOL_TIMEOUT_SEC * time.Second
 	}
 
@@ -146,7 +141,7 @@ func (c *Redis) Lock(ctx context.Context, lockKey string, opts ...cache.LockOpti
 
 	return func(ctx context.Context) error {
 		if _, err := mutex.UnlockContext(ctx); err != nil {
-			slog.ErrorContext(ctx, "[Redis] failed to release lock", "error", err)
+			slog.ErrorContext(ctx, "redis.lock_release_failed", telemetry.Err(err))
 			return err
 		}
 

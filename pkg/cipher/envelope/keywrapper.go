@@ -41,7 +41,7 @@ func NewEnvKeyWrapper(envVar string) (KeyWrapper, error) {
 	return &envKeyWrapper{aead: aead}, nil
 }
 
-func (w *envKeyWrapper) Wrap(key []byte) ([]byte, error)     { return seal(w.aead, key, nil) }
+func (w *envKeyWrapper) Wrap(key []byte) ([]byte, error)       { return seal(w.aead, key, nil) }
 func (w *envKeyWrapper) Unwrap(wrapped []byte) ([]byte, error) { return open(w.aead, wrapped, nil) }
 
 // newAEAD builds an AES-256-GCM AEAD from a 32-byte key.
