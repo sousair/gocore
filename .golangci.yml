@@ -1,0 +1,17 @@
+version: "2"
+linters:
+  enable:
+    - sloglint
+    - forbidigo
+  settings:
+    sloglint:
+      context: all
+      key-naming-case: snake
+      forbidden-keys:
+        - err
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print(|f|ln)$
+          msg: use slog with context
+        - pattern: ^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
+          msg: legacy log is banned; use slog + telemetry helpers
