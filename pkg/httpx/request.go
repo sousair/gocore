@@ -2,7 +2,7 @@ package httpx
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/locales/en"
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
+	"github.com/sousair/gocore/pkg/telemetry"
 
 	ut "github.com/go-playground/universal-translator"
 	en_translations "github.com/go-playground/validator/v10/translations/en"
@@ -36,10 +37,10 @@ func GetValidator() *validator.Validate {
 		translator, ok = uni.GetTranslator("en")
 		if ok {
 			if err := en_translations.RegisterDefaultTranslations(v, translator); err != nil {
-				log.Printf("[HTTPX] failed to register validator translations: %v", err)
+				slog.Warn("httpx.validator_translations_failed", telemetry.Err(err)) //nolint:sloglint // no ctx at construction
 			}
 		} else {
-			log.Fatal("[HTTPX] failed to get translator for 'en'")
+			panic("httpx: failed to get translator for 'en'")
 		}
 	})
 

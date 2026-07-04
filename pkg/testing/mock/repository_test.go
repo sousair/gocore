@@ -15,8 +15,8 @@ import (
 
 type TestEntity struct {
 	entity.BaseEntity
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	Name   string    `json:"name"`
+	Status string    `json:"status"`
 	UserID uuid.UUID `json:"user_id"`
 }
 
@@ -115,7 +115,7 @@ func TestDelete_SoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, repo.Deleted, 1)
 	assert.Len(t, repo.Records(), 0)    // not visible
-	assert.Len(t, repo.AllRecords(), 1)  // still exists
+	assert.Len(t, repo.AllRecords(), 1) // still exists
 }
 
 func TestFindOne_SkipsSoftDeleted(t *testing.T) {

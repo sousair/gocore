@@ -2,7 +2,7 @@ package database
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"gorm.io/driver/postgres"
@@ -21,7 +21,7 @@ func NewPostgres(options ...Option) (*gorm.DB, error) {
 
 	port, ok := os.LookupEnv("DB_PORT")
 	if !ok {
-		log.Printf("DB_PORT is not set defaulting to 5432")
+		slog.Warn("postgres.env_default", "var", "DB_PORT", "default", "5432") //nolint:sloglint // no ctx at construction
 		port = "5432"
 	}
 
@@ -42,7 +42,7 @@ func NewPostgres(options ...Option) (*gorm.DB, error) {
 
 	sslmode, ok := os.LookupEnv("DB_SSLMODE")
 	if !ok {
-		log.Printf("DB_SSLMODE is not set defaulting to require")
+		slog.Warn("postgres.env_default", "var", "DB_SSLMODE", "default", defaultSSLMode) //nolint:sloglint // no ctx at construction
 		sslmode = defaultSSLMode
 	}
 
