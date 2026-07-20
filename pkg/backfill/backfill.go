@@ -1,7 +1,7 @@
-// Package backfill provides the reusable batch loop and registry behind a
-// project's data migrations: an idempotent, batched, rate-limited job per
-// data migration (typically driven by a River worker in the consuming app).
-// See the AI Jail wiki concept "backfill".
+// Package backfill provides the reusable batch loop and registry for
+// idempotent, batched, rate-limited data migrations: process work in small
+// committed batches from a resumable cursor, with optional throttling
+// between batches.
 package backfill
 
 import (
@@ -21,7 +21,8 @@ type Batch[C any] struct {
 type Step[C any] func(ctx context.Context, cursor C) (Batch[C], error)
 
 // Run drives step from start, sleeping throttle between batches, until a batch
-// reports Done or ctx is cancelled.
+// reports Done or ctx is cancelled. A step error is returned unwrapped, so
+// callers can errors.As against their own Step error type.
 func Run[C any](ctx context.Context, start C, throttle time.Duration, step Step[C]) error {
 	cursor := start
 	for {
@@ -58,12 +59,22 @@ type Registry struct {
 	byName map[string]Descriptor
 }
 
-// Register adds d to the registry.
+// Register adds d to the registry. Registering a Name that already exists
+// overwrites the existing entry in place, keeping List and Get in sync.
 func (r *Registry) Register(d Descriptor) {
 	if r.byName == nil {
 		r.byName = map[string]Descriptor{}
 	}
-	r.items = append(r.items, d)
+	if _, exists := r.byName[d.Name]; exists {
+		for i, existing := range r.items {
+			if existing.Name == d.Name {
+				r.items[i] = d
+				break
+			}
+		}
+	} else {
+		r.items = append(r.items, d)
+	}
 	r.byName[d.Name] = d
 }
 

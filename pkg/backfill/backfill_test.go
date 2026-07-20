@@ -49,3 +49,24 @@ func TestRegistry_listAndGet(t *testing.T) {
 		t.Fatal("Get(missing) should be false")
 	}
 }
+
+func TestRegistry_registerDuplicateNameOverwritesInPlace(t *testing.T) {
+	var r backfill.Registry
+	r.Register(backfill.Descriptor{Name: "noop", Summary: "does nothing"})
+	r.Register(backfill.Descriptor{Name: "noop", Summary: "still does nothing, updated"})
+
+	if got := len(r.List()); got != 1 {
+		t.Fatalf("List len = %d, want 1 after re-registering same Name", got)
+	}
+	d, ok := r.Get("noop")
+	if !ok {
+		t.Fatal("Get(noop) not found")
+	}
+	const want = "still does nothing, updated"
+	if d.Summary != want {
+		t.Fatalf("Get(noop).Summary = %q, want %q", d.Summary, want)
+	}
+	if r.List()[0].Summary != want {
+		t.Fatalf("List()[0].Summary = %q, want %q", r.List()[0].Summary, want)
+	}
+}
