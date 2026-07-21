@@ -174,6 +174,41 @@ func TestRiverWorkerMiddleware(t *testing.T) {
 			t.Fatalf("want error message in log, got %v", logRec["error"])
 		}
 	})
+
+	t.Run("given a successful and a failing job/when Work/then river.job.duration histogram records both outcomes", func(t *testing.T) {
+		withTracerProvider(t, sdktrace.NewTracerProvider())
+		reader := withMeterProvider(t)
+
+		mw := telemetry.RiverWorkerMiddleware()
+		okJob := &rivertype.JobRow{Kind: "send_email", Queue: "default"}
+		if err := mw.Work(context.Background(), okJob, func(ctx context.Context) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		failJob := &rivertype.JobRow{Kind: "send_email", Queue: "default"}
+		wantErr := errors.New("boom")
+		if err := mw.Work(context.Background(), failJob, func(ctx context.Context) error { return wantErr }); !errors.Is(err, wantErr) {
+			t.Fatalf("want error returned unchanged, got %v", err)
+		}
+
+		points := histogramDataPoints(t, reader, "river.job.duration")
+		if len(points) != 2 {
+			t.Fatalf("want 2 histogram data points (one per outcome), got %d", len(points))
+		}
+		outcomes := map[string]bool{}
+		for _, p := range points {
+			if p.Count != 1 {
+				t.Fatalf("want count 1 per data point, got %d", p.Count)
+			}
+			for _, a := range p.Attributes.ToSlice() {
+				if a.Key == "river.outcome" {
+					outcomes[a.Value.Emit()] = true
+				}
+			}
+		}
+		if !outcomes["success"] || !outcomes["error"] {
+			t.Fatalf("want success and error outcomes recorded, got %v", outcomes)
+		}
+	})
 }
 
 func TestRiverMiddleware(t *testing.T) {

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -49,10 +51,14 @@ func (*insertMiddleware) InsertMany(ctx context.Context, manyParams []*rivertype
 // workerMiddleware extracts the enqueuing trace's traceparent (if present)
 // from job metadata and starts a root span for the work attempt linked into
 // that trace, then logs "river.job_failed" on error. The error is always
-// returned unchanged so River's retry/discard semantics are untouched.
-type workerMiddleware struct{ river.MiddlewareDefaults }
+// returned unchanged so River's retry/discard semantics are untouched. It
+// also records the river.job.duration histogram.
+type workerMiddleware struct {
+	river.MiddlewareDefaults
+	duration metric.Float64Histogram
+}
 
-func (*workerMiddleware) Work(ctx context.Context, job *rivertype.JobRow, doInner func(context.Context) error) error {
+func (m *workerMiddleware) Work(ctx context.Context, job *rivertype.JobRow, doInner func(context.Context) error) error {
 	meta := map[string]any{}
 	if len(job.Metadata) > 0 {
 		_ = json.Unmarshal(job.Metadata, &meta)
@@ -71,12 +77,20 @@ func (*workerMiddleware) Work(ctx context.Context, job *rivertype.JobRow, doInne
 		))
 	defer span.End()
 
+	start := time.Now()
 	err := doInner(ctx)
+	outcome := "success"
 	if err != nil {
+		outcome = "error"
 		RecordError(span, err, err.Error())
 		slog.ErrorContext(ctx, "river.job_failed", Err(err),
 			slog.String("kind", job.Kind), slog.String("queue", job.Queue), slog.Int("attempt", job.Attempt))
 	}
+	m.duration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
+		attribute.String("river.kind", job.Kind),
+		attribute.String("river.queue", job.Queue),
+		attribute.String("river.outcome", outcome),
+	))
 	return err
 }
 
@@ -89,7 +103,17 @@ func RiverInsertMiddleware() rivertype.JobInsertMiddleware { return &insertMiddl
 // starts a root span linked to the enqueuing trace, and logs
 // "river.job_failed" (with telemetry.Err) when the job errors. Errors are
 // always returned unchanged so River's retry semantics are untouched.
-func RiverWorkerMiddleware() rivertype.WorkerMiddleware { return &workerMiddleware{} }
+func RiverWorkerMiddleware() rivertype.WorkerMiddleware {
+	hist, err := otel.Meter(riverScope).Float64Histogram(
+		"river.job.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("Duration of River job work attempts."),
+	)
+	if err != nil {
+		panic(err)
+	}
+	return &workerMiddleware{duration: hist}
+}
 
 // RiverMiddleware is the convenience entry point apps pass to
 // river.Config.Middleware.

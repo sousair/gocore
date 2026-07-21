@@ -12,6 +12,8 @@ import (
 	"encoding/pem"
 	"log/slog"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -110,6 +112,46 @@ func TestInit(t *testing.T) {
 		}
 		if got := otel.GetTracerProvider(); got != before {
 			t.Fatalf("global tracer provider mutated despite Init error: got %v, want unchanged %v", got, before)
+		}
+	})
+	t.Run("given otlp endpoint set/when Init/then global meter provider wired and shutdown succeeds", func(t *testing.T) {
+		// A stub collector (any 200) lets tracer/logger/meter provider
+		// shutdown all flush successfully, proving the meter provider's
+		// Shutdown is really in the chain rather than asserting on a
+		// network-error string.
+		collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer collector.Close()
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", collector.URL)
+		buf := &bytes.Buffer{}
+
+		before := otel.GetMeterProvider()
+		shutdown, err := telemetry.Init(context.Background(), telemetry.Config{ServiceName: "testsvc", Writer: buf})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got := otel.GetMeterProvider(); got == before {
+			t.Fatal("want global meter provider wired when otlp endpoint set")
+		}
+		if err := shutdown(context.Background()); err != nil {
+			t.Fatalf("want shutdown to succeed (drains meter provider too), got %v", err)
+		}
+	})
+	t.Run("given no otlp endpoint/when Init/then global meter provider left as no-op default", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+		buf := &bytes.Buffer{}
+		before := otel.GetMeterProvider()
+
+		shutdown, err := telemetry.Init(context.Background(), telemetry.Config{ServiceName: "testsvc", Writer: buf})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = shutdown(context.Background()) }()
+
+		if got := otel.GetMeterProvider(); got != before {
+			t.Fatalf("want global meter provider unchanged without otlp endpoint, got %v want %v", got, before)
 		}
 	})
 }
