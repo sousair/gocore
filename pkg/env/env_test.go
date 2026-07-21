@@ -1,6 +1,8 @@
 package env_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -52,6 +54,70 @@ func TestGetEnvAs(t *testing.T) {
 		t.Setenv("GOCORE_BADINT", "notanint")
 		if got := env.GetEnvAs("GOCORE_BADINT", 99); got != 99 {
 			t.Fatalf("want 99, got %d", got)
+		}
+	})
+}
+
+func TestSecretString(t *testing.T) {
+	const fileEnvVar = "GOCORE_TEST_SECRET_FILE"
+	const valueEnvVar = "GOCORE_TEST_SECRET_VALUE"
+
+	t.Run("reads and trims file when file env is set", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(path, []byte("shh\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(fileEnvVar, path)
+		t.Setenv(valueEnvVar, "unused")
+		got, err := env.SecretString(fileEnvVar, valueEnvVar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "shh" {
+			t.Errorf("want %q, got %q", "shh", got)
+		}
+	})
+
+	t.Run("falls back to inline value when file env unset", func(t *testing.T) {
+		t.Setenv(fileEnvVar, "")
+		t.Setenv(valueEnvVar, "inline-secret")
+		got, err := env.SecretString(fileEnvVar, valueEnvVar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "inline-secret" {
+			t.Errorf("want %q, got %q", "inline-secret", got)
+		}
+	})
+
+	t.Run("returns empty when neither is set", func(t *testing.T) {
+		t.Setenv(fileEnvVar, "")
+		t.Setenv(valueEnvVar, "")
+		got, err := env.SecretString(fileEnvVar, valueEnvVar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "" {
+			t.Errorf("want empty string, got %q", got)
+		}
+	})
+
+	t.Run("unreadable file errors", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "does-not-exist")
+		t.Setenv(fileEnvVar, path)
+		if _, err := env.SecretString(fileEnvVar, valueEnvVar); err == nil {
+			t.Error("want error for unreadable secret file, got nil")
+		}
+	})
+
+	t.Run("empty file errors", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(path, []byte("  \n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(fileEnvVar, path)
+		if _, err := env.SecretString(fileEnvVar, valueEnvVar); err == nil {
+			t.Error("want error for empty secret file, got nil")
 		}
 	})
 }
