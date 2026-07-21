@@ -3,8 +3,10 @@
 package env
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -57,4 +59,24 @@ func GetEnvAs[T any](key string, defaultValue T) T {
 	}
 
 	return parsed.(T)
+}
+
+// SecretString resolves a plaintext secret from either a mounted file or an
+// inline env var, preferring the file when fileEnvVar is set. Unlike
+// NewKeyWrapper, an unset pair is not an error: callers treat "" as the
+// feature being disabled.
+func SecretString(fileEnvVar, valueEnvVar string) (string, error) {
+	path := os.Getenv(fileEnvVar)
+	if path == "" {
+		return os.Getenv(valueEnvVar), nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("env: read secret file %s: %w", path, err)
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return "", fmt.Errorf("env: secret file %s is empty", path)
+	}
+	return trimmed, nil
 }
