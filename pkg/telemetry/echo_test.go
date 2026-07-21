@@ -2,6 +2,7 @@ package telemetry_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -12,12 +13,49 @@ import (
 	"github.com/labstack/echo/v4"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/sousair/gocore/pkg/telemetry"
 )
+
+// withMeterProvider installs a ManualReader-backed MeterProvider as the
+// global for the test duration, restoring whatever was there before on
+// cleanup. EchoMiddleware captures the meter from the global at construction
+// time, same as the tracer provider/propagator.
+func withMeterProvider(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(mp)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+	return reader
+}
+
+// histogramDataPoints finds the histogram data points for metricName across
+// every scope the reader collected.
+func histogramDataPoints(t *testing.T, reader *sdkmetric.ManualReader, metricName string) []metricdata.HistogramDataPoint[float64] {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != metricName {
+				continue
+			}
+			if hist, ok := m.Data.(metricdata.Histogram[float64]); ok {
+				return hist.DataPoints
+			}
+		}
+	}
+	return nil
+}
 
 // withOTelGlobals installs tp/prop as the global tracer provider/propagator
 // for the duration of the test, restoring whatever was there before on
@@ -165,6 +203,51 @@ func TestEchoMiddleware(t *testing.T) {
 		}
 		if logRec["status"] != float64(http.StatusInternalServerError) {
 			t.Fatalf("want status 500 in access log, got %v", logRec["status"])
+		}
+	})
+
+	t.Run("given a handled request/when EchoMiddleware records/then http.server.request.duration histogram gets a data point with route/method/status attrs", func(t *testing.T) {
+		withOTelGlobals(t, sdktrace.NewTracerProvider(), propagation.TraceContext{})
+		withCapturedDefaultLogger(t)
+		reader := withMeterProvider(t)
+
+		e := echo.New()
+		e.Use(telemetry.EchoMiddleware())
+		e.GET("/things/:id", func(c echo.Context) error {
+			return c.String(http.StatusOK, "ok")
+		})
+
+		srv := httptest.NewServer(e)
+		defer srv.Close()
+
+		resp, err := http.Get(srv.URL + "/things/42")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		points := histogramDataPoints(t, reader, "http.server.request.duration")
+		if len(points) != 1 {
+			t.Fatalf("want 1 histogram data point, got %d", len(points))
+		}
+		if points[0].Count != 1 {
+			t.Fatalf("want count 1, got %d", points[0].Count)
+		}
+
+		attrs := points[0].Attributes.ToSlice()
+		want := map[string]string{
+			"http.request.method":       "GET",
+			"http.route":                "/things/:id",
+			"http.response.status_code": "200",
+		}
+		got := map[string]string{}
+		for _, a := range attrs {
+			got[string(a.Key)] = a.Value.Emit()
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Fatalf("want attr %s=%s, got %v", k, v, got)
+			}
 		}
 	})
 }

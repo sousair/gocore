@@ -1,6 +1,7 @@
 // Package telemetry is the shared observability substrate: a real OTel
-// TracerProvider (export env-gated), W3C trace propagation, and a JSON slog
-// default logger whose records carry trace_id/span_id.
+// TracerProvider (export env-gated), a MeterProvider (same gate) with Go
+// runtime metrics, W3C trace propagation, and a JSON slog default logger
+// whose records carry trace_id/span_id.
 //
 // Boot:    shutdown, err := telemetry.Init(ctx, telemetry.Config{ServiceName: "bygul"})
 // Spans:   tracer := telemetry.TracerFromContext(ctx, scopeName)
@@ -13,8 +14,9 @@
 //
 // LLM:     ctx, ls := telemetry.StartLLMCall(ctx, info); ls.End(result, err)
 //
-// Metrics and the otelecho/otelpgx/otelriver auto-instrumentation slot in
-// later behind the same globals with zero call-site changes.
+// Metrics: EchoMiddleware and the River middlewares record RED/job metrics
+// against the global MeterProvider with zero call-site changes; the
+// otelecho/otelpgx auto-instrumentation slots in later the same way.
 package telemetry
 
 import (
@@ -26,11 +28,14 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	// semconv v1.26.0 (pinned by the task brief) predates the
@@ -58,10 +63,11 @@ type Config struct {
 	Writer         io.Writer // default os.Stdout; tests inject a buffer
 }
 
-// Init wires the global TracerProvider, W3C trace propagator, and default
-// slog logger. OTLP trace+log export activates iff
-// OTEL_EXPORTER_OTLP_ENDPOINT is set; stdout JSON logging is always on.
-// Returned shutdown flushes exporters; call it on process exit.
+// Init wires the global TracerProvider, MeterProvider, W3C trace propagator,
+// and default slog logger. OTLP trace+log+metric export (and Go runtime
+// metrics) activates iff OTEL_EXPORTER_OTLP_ENDPOINT is set; stdout JSON
+// logging is always on. Returned shutdown flushes exporters; call it on
+// process exit.
 func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) {
 	if cfg.ServiceName == "" {
 		return nil, errors.New("telemetry: ServiceName is required")
@@ -131,11 +137,32 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 		handler = newFanoutHandler(stdout, newLevelHandler(lvl, newTraceHandler(bridge)))
 	}
 
+	var mp *sdkmetric.MeterProvider
+	if otlpOn {
+		metricExp, err := otlpmetrichttp.New(ctx)
+		if err != nil {
+			_ = shutdownEach(ctx, shutdowns)
+			return nil, err
+		}
+		mp = sdkmetric.NewMeterProvider(
+			sdkmetric.WithResource(res),
+			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp)),
+		)
+		shutdowns = append(shutdowns, mp.Shutdown)
+		if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {
+			_ = shutdownEach(ctx, shutdowns)
+			return nil, err
+		}
+	}
+
 	// Everything above succeeded — safe to mutate globals now.
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},
 	))
+	if mp != nil {
+		otel.SetMeterProvider(mp)
+	}
 	slog.SetDefault(slog.New(handler).With(
 		slog.String("service_name", cfg.ServiceName),
 		slog.String("service_version", cfg.ServiceVersion),
@@ -143,14 +170,22 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 	))
 
 	return func(ctx context.Context) error {
-		var first error
-		for _, fn := range shutdowns {
-			if err := fn(ctx); err != nil && first == nil {
-				first = err
-			}
-		}
-		return first
+		return shutdownEach(ctx, shutdowns)
 	}, nil
+}
+
+// shutdownEach runs every shutdown func, swallowing all but the first error —
+// used both by Init's own error paths (roll back already-constructed
+// providers before returning) and by the shutdown func Init returns on
+// success.
+func shutdownEach(ctx context.Context, shutdowns []func(context.Context) error) error {
+	var first error
+	for _, fn := range shutdowns {
+		if err := fn(ctx); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 func logLevel() slog.Level {
