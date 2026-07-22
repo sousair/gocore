@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/riverqueue/river/rivertype"
@@ -164,8 +165,11 @@ func TestRiverWorkerMiddleware(t *testing.T) {
 		if err := json.Unmarshal(buf.Bytes(), &logRec); err != nil {
 			t.Fatalf("log not json: %q", buf.String())
 		}
-		if logRec["msg"] != "river.job_failed" {
-			t.Fatalf("want river.job_failed log, got %v", logRec)
+		if logRec["event"] != "river.job_failed" {
+			t.Fatalf("want event=river.job_failed attr, got %v", logRec)
+		}
+		if msg, _ := logRec["msg"].(string); !strings.Contains(msg, "river.work flaky attempt=2 failed: boom") {
+			t.Fatalf("want enriched river message, got %v", logRec["msg"])
 		}
 		if logRec["kind"] != "flaky" || logRec["queue"] != "default" || logRec["attempt"] != float64(2) {
 			t.Fatalf("want kind/queue/attempt in log, got %v", logRec)

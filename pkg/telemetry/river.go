@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -83,7 +84,10 @@ func (m *workerMiddleware) Work(ctx context.Context, job *rivertype.JobRow, doIn
 	if err != nil {
 		outcome = "error"
 		RecordError(span, err, err.Error())
-		slog.ErrorContext(ctx, "river.job_failed", Err(err),
+		slog.ErrorContext(ctx,
+			fmt.Sprintf("river.work %s attempt=%d failed: %s", job.Kind, job.Attempt, err.Error()),
+			Err(err),
+			slog.String("event", "river.job_failed"),
 			slog.String("kind", job.Kind), slog.String("queue", job.Queue), slog.Int("attempt", job.Attempt))
 	}
 	m.duration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
