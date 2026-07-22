@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -16,6 +17,25 @@ import (
 
 const echoScope = "github.com/sousair/gocore/pkg/telemetry/echo"
 
+// EchoOption configures EchoMiddleware.
+type EchoOption func(*echoConfig)
+
+type echoConfig struct{ skipRoutes map[string]struct{} }
+
+// WithSkipRoutes replaces the default probe-route skip set (default {"/health"}).
+// Routes are matched against echo's route template, c.Path(). A skipped route
+// gets no span and no RED metric, and logs a single WARN line only when it
+// fails (status >= 400 or a handler error) — so a DB-down readiness probe stays
+// visible while healthy probes are silent.
+func WithSkipRoutes(routes ...string) EchoOption {
+	return func(cfg *echoConfig) {
+		cfg.skipRoutes = make(map[string]struct{}, len(routes))
+		for _, r := range routes {
+			cfg.skipRoutes[r] = struct{}{}
+		}
+	}
+}
+
 // EchoMiddleware is the app entry-point middleware: it extracts an incoming
 // W3C trace context (if any), starts the request's root span, emits the
 // "http.request" access-log record, and records the
@@ -26,7 +46,12 @@ const echoScope = "github.com/sousair/gocore/pkg/telemetry/echo"
 // The tracer, propagator, and histogram are captured once, from the globals
 // telemetry.Init sets up, at the moment this constructor runs — register it
 // after Init, same as any other otel-backed middleware.
-func EchoMiddleware() echo.MiddlewareFunc {
+func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
+	cfg := echoConfig{skipRoutes: map[string]struct{}{"/health": {}}}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	tracer := otel.Tracer(echoScope)
 	prop := otel.GetTextMapPropagator()
 	// Float64Histogram only errors on a malformed instrument config (a bug), so panic at wire time.
@@ -40,6 +65,10 @@ func EchoMiddleware() echo.MiddlewareFunc {
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if _, skip := cfg.skipRoutes[c.Path()]; skip {
+				return serveProbe(c, next)
+			}
+
 			req := c.Request()
 			ctx := prop.Extract(req.Context(), propagation.HeaderCarrier(req.Header))
 			ctx, span := tracer.Start(ctx, "HTTP "+req.Method+" "+c.Path(),
@@ -68,9 +97,11 @@ func EchoMiddleware() echo.MiddlewareFunc {
 				span.SetStatus(codes.Error, http.StatusText(status))
 			}
 
-			slog.InfoContext(ctx, "http.request",
+			ms := time.Since(start).Milliseconds()
+			slog.InfoContext(ctx, fmt.Sprintf("%s %s %d %dms", req.Method, c.Path(), status, ms),
+				"event", "http.request",
 				"method", req.Method, "route", c.Path(), "status", status,
-				"duration_ms", time.Since(start).Milliseconds())
+				"duration_ms", ms)
 
 			// c.Path() (the route template) keeps attribute cardinality
 			// bounded — the raw URL would blow it up with path params.
@@ -83,4 +114,25 @@ func EchoMiddleware() echo.MiddlewareFunc {
 			return err
 		}
 	}
+}
+
+// serveProbe runs a skipped-route handler with no span and no RED metric,
+// emitting a single WARN access-log only when the probe itself fails so a
+// DB-down readiness probe stays visible while healthy probes go silent.
+func serveProbe(c echo.Context, next echo.HandlerFunc) error {
+	err := next(c)
+	status := c.Response().Status
+	if err != nil {
+		if he, ok := err.(*echo.HTTPError); ok {
+			status = he.Code
+		} else {
+			status = http.StatusInternalServerError
+		}
+	}
+	if status >= 400 || err != nil {
+		slog.WarnContext(c.Request().Context(),
+			fmt.Sprintf("probe %s %d", c.Path(), status),
+			"event", "http.probe", "route", c.Path(), "status", status)
+	}
+	return err
 }
