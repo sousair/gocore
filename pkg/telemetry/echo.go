@@ -83,13 +83,8 @@ func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
 			start := time.Now()
 			err := next(c)
 
-			status := c.Response().Status
+			status := statusOf(c, err)
 			if err != nil {
-				if he, ok := err.(*echo.HTTPError); ok {
-					status = he.Code
-				} else {
-					status = http.StatusInternalServerError
-				}
 				RecordError(span, err, err.Error())
 			}
 			span.SetAttributes(attribute.Int("http.status_code", status))
@@ -116,19 +111,24 @@ func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
 	}
 }
 
+// statusOf resolves the response status, mapping a handler error to the code
+// echo's error handler will send (an *echo.HTTPError's own code, else 500).
+func statusOf(c echo.Context, err error) int {
+	if err != nil {
+		if he, ok := err.(*echo.HTTPError); ok {
+			return he.Code
+		}
+		return http.StatusInternalServerError
+	}
+	return c.Response().Status
+}
+
 // serveProbe runs a skipped-route handler with no span and no RED metric,
 // emitting a single WARN access-log only when the probe itself fails so a
 // DB-down readiness probe stays visible while healthy probes go silent.
 func serveProbe(c echo.Context, next echo.HandlerFunc) error {
 	err := next(c)
-	status := c.Response().Status
-	if err != nil {
-		if he, ok := err.(*echo.HTTPError); ok {
-			status = he.Code
-		} else {
-			status = http.StatusInternalServerError
-		}
-	}
+	status := statusOf(c, err)
 	if status >= 400 || err != nil {
 		slog.WarnContext(c.Request().Context(),
 			fmt.Sprintf("probe %s %d", c.Path(), status),
