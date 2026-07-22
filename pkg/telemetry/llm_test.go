@@ -1,8 +1,12 @@
 package telemetry_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/sousair/gocore/pkg/telemetry"
@@ -40,6 +44,30 @@ func TestStartLLMCall(t *testing.T) {
 		spans := rec.Ended()
 		if spans[len(spans)-1].Status().Code != codes.Error {
 			t.Fatal("want error status")
+		}
+	})
+	t.Run("given success/when End/then genai.call log carries event attr and enriched message", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+		defer slog.SetDefault(prev)
+
+		_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{Operation: "chat", Provider: "openrouter", RequestModel: "m"})
+		ls.End(telemetry.LLMResult{ResponseModel: "m-1", InputTokens: 12, OutputTokens: 3}, nil)
+
+		var logRec map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &logRec); err != nil {
+			t.Fatalf("genai log not json: %q", buf.String())
+		}
+		if logRec["event"] != "genai.call" {
+			t.Fatalf("want event=genai.call, got %v", logRec)
+		}
+		if logRec["input_tokens"] != float64(12) || logRec["output_tokens"] != float64(3) {
+			t.Fatalf("want token attrs preserved, got %v", logRec)
+		}
+		msg, _ := logRec["msg"].(string)
+		if !strings.Contains(msg, "genai.call chat openrouter") {
+			t.Fatalf("want enriched genai message, got %q", msg)
 		}
 	})
 	root.End()

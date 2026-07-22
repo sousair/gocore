@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -47,11 +48,18 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 	)
 	if err != nil {
 		RecordError(s.span, err, err.Error())
-		slog.ErrorContext(s.ctx, "genai.call", Err(err),
+		slog.ErrorContext(s.ctx,
+			fmt.Sprintf("genai.call %s %s failed: %s", s.info.Operation, s.info.Provider, err.Error()),
+			Err(err),
+			slog.String("event", "genai.call"),
 			slog.String("operation", s.info.Operation), slog.String("provider", s.info.Provider),
 			slog.String("request_model", s.info.RequestModel), slog.Int64("duration_ms", dur.Milliseconds()))
 	} else {
-		slog.InfoContext(s.ctx, "genai.call",
+		slog.InfoContext(s.ctx,
+			fmt.Sprintf("genai.call %s %s %s %d/%dtok %s",
+				s.info.Operation, s.info.Provider, res.ResponseModel,
+				res.InputTokens, res.OutputTokens, dur.Round(time.Millisecond)),
+			"event", "genai.call",
 			"operation", s.info.Operation, "provider", s.info.Provider,
 			"request_model", s.info.RequestModel, "response_model", res.ResponseModel,
 			"input_tokens", res.InputTokens, "output_tokens", res.OutputTokens,

@@ -121,8 +121,11 @@ func TestEchoMiddleware(t *testing.T) {
 		if err := json.Unmarshal(buf.Bytes(), &logRec); err != nil {
 			t.Fatalf("access log not json: %q", buf.String())
 		}
-		if logRec["msg"] != "http.request" {
-			t.Fatalf("want http.request access log, got %v", logRec)
+		if logRec["event"] != "http.request" {
+			t.Fatalf("want event=http.request attr, got %v", logRec)
+		}
+		if logRec["msg"] != "GET /things/:id 200 0ms" {
+			t.Fatalf("want enriched access-log msg, got %v", logRec["msg"])
 		}
 		if logRec["status"] != float64(http.StatusOK) {
 			t.Fatalf("want status 200 in access log, got %v", logRec["status"])
@@ -248,6 +251,89 @@ func TestEchoMiddleware(t *testing.T) {
 			if got[k] != v {
 				t.Fatalf("want attr %s=%s, got %v", k, v, got)
 			}
+		}
+	})
+
+	t.Run("given a healthy /health probe/when handled/then no span, no metric, no log", func(t *testing.T) {
+		rec := tracetest.NewSpanRecorder()
+		withOTelGlobals(t, sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)), propagation.TraceContext{})
+		buf := withCapturedDefaultLogger(t)
+		reader := withMeterProvider(t)
+
+		e := echo.New()
+		e.Use(telemetry.EchoMiddleware())
+		e.GET("/health", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		srv := httptest.NewServer(e)
+		defer srv.Close()
+
+		resp, err := http.Get(srv.URL + "/health")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if len(rec.Ended()) != 0 {
+			t.Fatalf("want 0 spans for healthy probe, got %d", len(rec.Ended()))
+		}
+		if pts := histogramDataPoints(t, reader, "http.server.request.duration"); len(pts) != 0 {
+			t.Fatalf("want 0 histogram points for healthy probe, got %d", len(pts))
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("want no log for healthy probe, got %q", buf.String())
+		}
+	})
+
+	t.Run("given a failing /health probe/when handled/then one WARN log, still no span", func(t *testing.T) {
+		rec := tracetest.NewSpanRecorder()
+		withOTelGlobals(t, sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)), propagation.TraceContext{})
+		buf := withCapturedDefaultLogger(t)
+
+		e := echo.New()
+		e.Use(telemetry.EchoMiddleware())
+		e.GET("/health", func(c echo.Context) error { return c.NoContent(http.StatusServiceUnavailable) })
+		srv := httptest.NewServer(e)
+		defer srv.Close()
+
+		resp, err := http.Get(srv.URL + "/health")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if len(rec.Ended()) != 0 {
+			t.Fatalf("want 0 spans for probe, got %d", len(rec.Ended()))
+		}
+		var logRec map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &logRec); err != nil {
+			t.Fatalf("probe log not json: %q", buf.String())
+		}
+		if logRec["level"] != "WARN" {
+			t.Fatalf("want WARN level for failing probe, got %v", logRec["level"])
+		}
+		if logRec["event"] != "http.probe" || logRec["status"] != float64(http.StatusServiceUnavailable) {
+			t.Fatalf("want http.probe event + status 503, got %v", logRec)
+		}
+	})
+
+	t.Run("given WithSkipRoutes overrides the default/when /health handled/then it is no longer skipped", func(t *testing.T) {
+		rec := tracetest.NewSpanRecorder()
+		withOTelGlobals(t, sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)), propagation.TraceContext{})
+		withCapturedDefaultLogger(t)
+
+		e := echo.New()
+		e.Use(telemetry.EchoMiddleware(telemetry.WithSkipRoutes("/livez")))
+		e.GET("/health", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		srv := httptest.NewServer(e)
+		defer srv.Close()
+
+		resp, err := http.Get(srv.URL + "/health")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if len(rec.Ended()) != 1 {
+			t.Fatalf("want /health traced when not in skip set, got %d spans", len(rec.Ended()))
 		}
 	})
 }
