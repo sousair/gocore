@@ -46,8 +46,8 @@ func WithHealthRoute(server *echo.Echo, checks ...*HealthCheck) {
 			"checks": checkMap,
 		}
 
-		if overallStatus == HealthStatusOK {
-			return c.JSON(http.StatusInternalServerError, res)
+		if overallStatus != HealthStatusOK {
+			return c.JSON(http.StatusServiceUnavailable, res)
 		}
 
 		return NewOKResponse(c, res)
