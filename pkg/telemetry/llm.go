@@ -12,7 +12,12 @@ import (
 
 const llmScope = "github.com/sousair/gocore/pkg/telemetry"
 
-type LLMCallInfo struct{ Operation, Provider, RequestModel string }
+type LLMCallInfo struct {
+	Operation, Provider, RequestModel string
+	// Round is the agentic loop's round index, emitted only when set. Additive:
+	// single-shot callers leave it zero.
+	Round int
+}
 
 type LLMResult struct {
 	ResponseModel string
@@ -28,12 +33,17 @@ type LLMSpan struct {
 }
 
 func StartLLMCall(ctx context.Context, info LLMCallInfo) (context.Context, *LLMSpan) {
-	tracer := TracerFromContext(ctx, llmScope)
-	ctx, span := tracer.Start(ctx, "gen_ai."+info.Operation, trace.WithAttributes(
+	attrs := []attribute.KeyValue{
 		attribute.String(AttrGenAIOperationName, info.Operation),
 		attribute.String(AttrGenAIProviderName, info.Provider),
 		attribute.String(AttrGenAIRequestModel, info.RequestModel),
-	))
+	}
+	if info.Round > 0 {
+		attrs = append(attrs, attribute.Int(AttrGenAIRound, info.Round))
+	}
+
+	tracer := TracerFromContext(ctx, llmScope)
+	ctx, span := tracer.Start(ctx, "gen_ai."+info.Operation, trace.WithAttributes(attrs...))
 	return ctx, &LLMSpan{ctx: ctx, span: span, info: info, start: time.Now()}
 }
 
