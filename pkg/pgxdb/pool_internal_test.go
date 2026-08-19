@@ -85,7 +85,7 @@ func TestBuildConfig(t *testing.T) {
 }
 
 func TestQueryOnlyTracerInterfaces(t *testing.T) {
-	tracer, err := buildConfig(testDSN)
+	cfg, err := buildConfig(testDSN)
 	if err != nil {
 		t.Fatalf("buildConfig: %v", err)
 	}
@@ -94,8 +94,8 @@ func TestQueryOnlyTracerInterfaces(t *testing.T) {
 		// pgx.ConnConfig.Tracer is itself typed pgx.QueryTracer, so satisfying
 		// that interface is enforced at compile time by `var _ pgx.QueryTracer
 		// = (*queryOnlyTracer)(nil)` in pool.go.
-		if _, ok := tracer.ConnConfig.Tracer.(*queryOnlyTracer); !ok {
-			t.Fatalf("ConnConfig.Tracer is %T, want *queryOnlyTracer", tracer.ConnConfig.Tracer)
+		if _, ok := cfg.ConnConfig.Tracer.(*queryOnlyTracer); !ok {
+			t.Fatalf("ConnConfig.Tracer is %T, want *queryOnlyTracer", cfg.ConnConfig.Tracer)
 		}
 	})
 
@@ -103,8 +103,8 @@ func TestQueryOnlyTracerInterfaces(t *testing.T) {
 		// This is the whole point of the change: pgx type-asserts each tracer
 		// interface separately, and otelpgx's inner tracer would satisfy
 		// PrepareTracer if we embedded it instead of wrapping it.
-		if _, ok := tracer.ConnConfig.Tracer.(pgx.PrepareTracer); ok {
-			t.Fatalf("%T satisfies pgx.PrepareTracer — prepare spans would fire again", tracer.ConnConfig.Tracer)
+		if _, ok := cfg.ConnConfig.Tracer.(pgx.PrepareTracer); ok {
+			t.Fatalf("%T satisfies pgx.PrepareTracer — prepare spans would fire again", cfg.ConnConfig.Tracer)
 		}
 	})
 }
@@ -144,8 +144,8 @@ func TestQueryOnlyTracerSkipsTxControl(t *testing.T) {
 		return &queryOnlyTracer{inner: inner}, rec, tp.Tracer("test")
 	}
 
-	for _, stmt := range []string{"BEGIN", "begin", "  COMMIT", "ROLLBACK", "SAVEPOINT s1", "RELEASE s1"} {
-		t.Run("given "+stmt+"/when TraceQueryStart runs/then the returned ctx carries no span", func(t *testing.T) {
+	for _, stmt := range []string{"BEGIN", "begin", "  COMMIT", "ROLLBACK", "SAVEPOINT s1", "RELEASE s1", "BEGIN;", "begin ;"} {
+		t.Run("given "+stmt+"/when TraceQueryStart runs/then no span is exported for the statement", func(t *testing.T) {
 			tracer, rec, tr := newRecordedTracer()
 			ctx, parent := tr.Start(context.Background(), "parent")
 			defer parent.End()
@@ -159,7 +159,23 @@ func TestQueryOnlyTracerSkipsTxControl(t *testing.T) {
 		})
 	}
 
-	t.Run("given a tx-control statement/when TraceQueryEnd runs on the skipped ctx/then the ambient parent span is not ended", func(t *testing.T) {
+	t.Run("given a tx-control statement/when TraceQueryStart runs/then the returned ctx carries a non-recording span that is not the parent", func(t *testing.T) {
+		tracer, _, tr := newRecordedTracer()
+		ctx, parent := tr.Start(context.Background(), "parent")
+		defer parent.End()
+
+		skipCtx := tracer.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "BEGIN"})
+		got := oteltrace.SpanFromContext(skipCtx)
+
+		if got.IsRecording() {
+			t.Fatal("span on the skip ctx is recording — a real span leaked through instead of a noop one")
+		}
+		if got.SpanContext().Equal(parent.SpanContext()) {
+			t.Fatal("span on the skip ctx is still the parent span — TraceQueryEnd would end it")
+		}
+	})
+
+	t.Run("given a tx-control statement/when TraceQueryEnd runs on the resulting ctx/then the ambient parent span is not ended", func(t *testing.T) {
 		tracer, rec, tr := newRecordedTracer()
 		ctx, parent := tr.Start(context.Background(), "parent")
 
@@ -167,7 +183,7 @@ func TestQueryOnlyTracerSkipsTxControl(t *testing.T) {
 		tracer.TraceQueryEnd(skipCtx, nil, pgx.TraceQueryEndData{})
 
 		if !parent.IsRecording() {
-			t.Fatal("parent span was ended by TraceQueryEnd on a skipped statement — the wrong span was closed")
+			t.Fatal("parent span was ended by TraceQueryEnd on a tx-control statement — the wrong span was closed")
 		}
 
 		parent.End()

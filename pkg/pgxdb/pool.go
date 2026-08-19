@@ -9,6 +9,8 @@ import (
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Option adjusts the pool config before the pool is opened.
@@ -58,34 +60,27 @@ func buildConfig(dsn string, opts ...Option) (*pgxpool.Config, error) {
 }
 
 // queryOnlyTracer implements only pgx.QueryTracer, deliberately not embedding
-// otelpgx.Tracer. Embedding would promote TracePrepareStart/TraceBatchStart/
-// etc. and pgx type-asserts each tracer interface separately, so a full
-// otelpgx.Tracer emits a span per prepared-statement cache miss and per
-// batch on top of every query. Wrapping to expose only QueryTracer drops
-// those spans with no change in what queries actually run.
+// otelpgx.Tracer: embedding would promote TracePrepareStart and defeat the
+// whole point of this wrapper.
 type queryOnlyTracer struct {
 	inner *otelpgx.Tracer
 }
 
 var _ pgx.QueryTracer = (*queryOnlyTracer)(nil)
 
-// txControlSkipped marks a context returned by TraceQueryStart for a
-// transaction-control statement. TraceQueryEnd must check it: the inner
-// tracer's End unconditionally ends whatever span is on the context, and for
-// a context that never got a query span that is the enclosing usecase span.
-type txControlSkipped struct{}
-
+// TraceQueryStart hands transaction-control statements a non-recording noop
+// span instead of a real one. otelpgx's own TraceQueryEnd already no-ops on a
+// non-recording span (it still runs its unconditional metric recording, which
+// is what we want — a failed COMMIT must still count as an error), so no
+// tracking of "was this skipped" is needed on our side.
 func (t *queryOnlyTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if isTxControlSQL(data.SQL) {
-		return context.WithValue(ctx, txControlSkipped{}, true)
+		return trace.ContextWithSpan(ctx, noop.Span{})
 	}
 	return t.inner.TraceQueryStart(ctx, conn, data)
 }
 
 func (t *queryOnlyTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
-	if skipped, _ := ctx.Value(txControlSkipped{}).(bool); skipped {
-		return
-	}
 	t.inner.TraceQueryEnd(ctx, conn, data)
 }
 
@@ -94,7 +89,7 @@ var txControlStatements = map[string]bool{
 }
 
 func isTxControlSQL(sql string) bool {
-	return txControlStatements[strings.ToUpper(firstWord(sql))]
+	return txControlStatements[strings.ToUpper(strings.TrimSuffix(firstWord(sql), ";"))]
 }
 
 var sqlcNameHeader = regexp.MustCompile(`(?i)^\s*--\s*name:\s*(\S+)`)
