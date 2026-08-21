@@ -3,6 +3,8 @@ package pgxdb
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
@@ -44,11 +46,42 @@ func buildConfig(dsn string, opts ...Option) (*pgxpool.Config, error) {
 	// arguments into span attributes, and these pools carry financial and
 	// personal data. WithDisableAcquireTracer drops a span per pool acquire,
 	// which is pure volume with no diagnostic value at 100% sampling.
+	// WithTrimSQLInSpanName must stay alongside WithSpanNameFunc: otelpgx only
+	// runs spanName for the span's actual name when trimming is on — without
+	// it spanName still feeds db.operation.name, but the span name itself
+	// falls back to the raw (multi-line, untrimmed) SQL text.
 	cfg.ConnConfig.Tracer = otelpgx.NewTracer(
 		otelpgx.WithTrimSQLInSpanName(),
+		otelpgx.WithSpanNameFunc(spanName),
 		otelpgx.WithDisableAcquireTracer(),
 	)
 	return cfg, nil
+}
+
+var sqlcNameHeader = regexp.MustCompile(`(?i)^\s*--\s*name:\s*(\S+)`)
+
+// spanName names a span after the sqlc query it runs (`ListBudgetTargetUserIDs`
+// from `-- name: ListBudgetTargetUserIDs :many`), since otelpgx's own
+// first-token trim just returns "--" for every sqlc-generated statement. Hand
+// written SQL and River's internal queries have no such header, so they fall
+// back to the first word — the same behaviour WithTrimSQLInSpanName gave
+// before. Never returns an empty string.
+func spanName(stmt string) string {
+	if m := sqlcNameHeader.FindStringSubmatch(stmt); m != nil {
+		return m[1]
+	}
+	if word := firstWord(stmt); word != "" {
+		return strings.ToUpper(word)
+	}
+	return "unknown"
+}
+
+func firstWord(stmt string) string {
+	fields := strings.Fields(stmt)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 // NewPool creates a pgxpool.Pool from dsn and verifies connectivity with a
