@@ -12,6 +12,11 @@ GOLANGCI_VERSION := v2.13.1
 ARCH   := $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 STAMP  := $(BIN)/.versions
 
+# A stamp records a version, not the binary's presence, and .versions is hidden — so
+# `rm -rf bin/*` would otherwise leave stamps behind and make `tools` a silent no-op.
+$(shell for t in golangci-lint; do \
+	[ -e "$(BIN)/$$t" ] || rm -f "$(STAMP)/$$t-"*; done)
+
 tools: $(STAMP)/golangci-lint-$(GOLANGCI_VERSION)
 
 # Each tool's target is a version-stamped marker, not the binary: bumping a version
