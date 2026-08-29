@@ -124,3 +124,32 @@ func TestLeavesMalformedBodyUntouched(t *testing.T) {
 		t.Errorf("malformed body was altered:\n got %s\nwant %s", rt.body, body)
 	}
 }
+
+// getBodyCapturingRT reads via req.GetBody() instead of req.Body, simulating a
+// redirect resend or HTTP/2 retry that replays the request through GetBody.
+type getBodyCapturingRT struct{ body []byte }
+
+func (c *getBodyCapturingRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.GetBody != nil {
+		rc, err := req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		c.body, _ = io.ReadAll(rc)
+	}
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(nil)), Header: http.Header{}}, nil
+}
+
+func TestGetBodyReplaysInjectedBody(t *testing.T) {
+	rt := &getBodyCapturingRT{}
+	post(t, ctxWithSpan(t), "https://openrouter.ai/api/v1/chat/completions",
+		`{"model":"m","messages":[]}`, NewTraceInjectingTransport(rt))
+
+	tr := traceObj(t, rt.body)
+	if tr["trace_id"] != "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Errorf("trace_id = %v", tr["trace_id"])
+	}
+	if tr["parent_span_id"] != "00f067aa0ba902b7" {
+		t.Errorf("parent_span_id = %v", tr["parent_span_id"])
+	}
+}

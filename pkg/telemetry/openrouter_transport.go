@@ -52,6 +52,12 @@ func (t *TraceInjectingTransport) RoundTrip(req *http.Request) (*http.Response, 
 	clone := req.Clone(req.Context())
 	clone.Body = io.NopCloser(bytes.NewReader(patched))
 	clone.ContentLength = int64(len(patched))
+	// req.Clone shallow-copies GetBody, which still closes over the original
+	// pre-injection body. A redirect resend or HTTP/2 retry that calls it would
+	// silently drop the trace object, so it must be rebound to the patched bytes.
+	clone.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(patched)), nil
+	}
 	return base.RoundTrip(clone)
 }
 
