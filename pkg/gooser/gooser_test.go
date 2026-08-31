@@ -87,7 +87,7 @@ func tableExists(ctx context.Context, t *testing.T, dsn, table string) bool {
 	if err != nil {
 		t.Fatalf("connect to %s: %v", dsn, err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	err = conn.QueryRow(ctx, `SELECT to_regclass('public.'||$1) IS NOT NULL`, table).Scan(&exists)

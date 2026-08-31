@@ -245,7 +245,7 @@ func TestEchoMiddleware(t *testing.T) {
 		}
 		got := map[string]string{}
 		for _, a := range attrs {
-			got[string(a.Key)] = a.Value.Emit()
+			got[string(a.Key)] = a.Value.String()
 		}
 		for k, v := range want {
 			if got[k] != v {
