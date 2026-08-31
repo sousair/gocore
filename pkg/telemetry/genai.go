@@ -28,6 +28,20 @@ const (
 	// index, so loop depth and max-round exhaustion are queryable.
 	AttrGenAIRound = "gen_ai.round"
 
+	// AttrGenAIFlowName names the application-level flow that made the call.
+	// Not in the semantic conventions: two flows routinely share one model, so
+	// the model alone cannot attribute cost or behavior to a call site.
+	AttrGenAIFlowName = "gen_ai.flow.name"
+
+	// AttrGenAIFinishReason is the provider's stop reason, verbatim. A "length"
+	// finish with no visible content is a paid-for-nothing call and is
+	// otherwise indistinguishable from a normal return.
+	AttrGenAIFinishReason = "gen_ai.response.finish_reason"
+
+	// AttrGenAIReasoningTokens is the share of output tokens spent on reasoning
+	// the caller never receives as text.
+	AttrGenAIReasoningTokens = "gen_ai.usage.reasoning_tokens"
+
 	// OpExecuteTool is the gen_ai.operation.name value for a tool execution.
 	OpExecuteTool = "execute_tool"
 )
