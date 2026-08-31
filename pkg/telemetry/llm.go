@@ -90,7 +90,7 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 			"request_model", s.info.RequestModel, "response_model", res.ResponseModel,
 			"input_tokens", res.InputTokens, "output_tokens", res.OutputTokens,
 			"reasoning_tokens", res.ReasoningTokens, "finish_reason", res.FinishReason,
-			"flow", s.info.FlowName,
+			"flow_name", s.info.FlowName,
 			"duration_ms", dur.Milliseconds())
 	}
 	s.span.End()
