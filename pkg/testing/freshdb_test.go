@@ -16,7 +16,7 @@ func TestFreshDB_isConnectableAndEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect fresh db: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	var n int
 	if err := conn.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.tables WHERE table_schema='public'`,
@@ -59,5 +59,5 @@ func TestFreshDB_preservesAdminDSNQueryParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect with returned dsn: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 }

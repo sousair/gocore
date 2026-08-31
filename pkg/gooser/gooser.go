@@ -29,7 +29,7 @@ func Up(ctx context.Context, dsn string, fsys fs.FS, dir string) error {
 	if err != nil {
 		return fmt.Errorf("gooser: open: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mu.Lock()
 	defer mu.Unlock()

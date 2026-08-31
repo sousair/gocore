@@ -38,7 +38,7 @@ func FreshDB(t *testing.T) string {
 	if err != nil {
 		t.Skipf("GOCORE_TEST_ADMIN_DSN set but unreachable (%v) — check that the DB is running", err)
 	}
-	defer admConn.Close(ctx)
+	defer func() { _ = admConn.Close(ctx) }()
 	if _, err := admConn.Exec(ctx, `DROP DATABASE IF EXISTS `+pgx.Identifier{name}.Sanitize()+` WITH (FORCE)`); err != nil {
 		t.Fatalf("pre-drop: %v", err)
 	}
@@ -50,7 +50,7 @@ func FreshDB(t *testing.T) string {
 		if err != nil {
 			return
 		}
-		defer c.Close(ctx)
+		defer func() { _ = c.Close(ctx) }()
 		_, _ = c.Exec(ctx, `DROP DATABASE IF EXISTS `+pgx.Identifier{name}.Sanitize()+` WITH (FORCE)`)
 	})
 

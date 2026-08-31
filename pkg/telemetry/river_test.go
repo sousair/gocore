@@ -205,7 +205,7 @@ func TestRiverWorkerMiddleware(t *testing.T) {
 			}
 			for _, a := range p.Attributes.ToSlice() {
 				if a.Key == "river.outcome" {
-					outcomes[a.Value.Emit()] = true
+					outcomes[a.Value.String()] = true
 				}
 			}
 		}
