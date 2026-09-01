@@ -14,6 +14,9 @@ const llmScope = "github.com/sousair/gocore/pkg/telemetry"
 
 type LLMCallInfo struct {
 	Operation, Provider, RequestModel string
+	// FlowName is the application-level flow behind the call, emitted only when
+	// set. Additive: callers with no flow concept leave it empty.
+	FlowName string
 	// Round is the agentic loop's round index, emitted only when set. Additive:
 	// single-shot callers leave it zero.
 	Round int
@@ -23,6 +26,10 @@ type LLMResult struct {
 	ResponseModel string
 	InputTokens   int
 	OutputTokens  int
+	// ReasoningTokens is the part of OutputTokens the provider spent thinking.
+	ReasoningTokens int
+	// FinishReason is the provider's stop reason, verbatim.
+	FinishReason string
 }
 
 type LLMSpan struct {
@@ -41,6 +48,9 @@ func StartLLMCall(ctx context.Context, info LLMCallInfo) (context.Context, *LLMS
 	if info.Round > 0 {
 		attrs = append(attrs, attribute.Int(AttrGenAIRound, info.Round))
 	}
+	if info.FlowName != "" {
+		attrs = append(attrs, attribute.String(AttrGenAIFlowName, info.FlowName))
+	}
 
 	tracer := TracerFromContext(ctx, llmScope)
 	ctx, span := tracer.Start(ctx, "gen_ai."+info.Operation, trace.WithAttributes(attrs...))
@@ -56,6 +66,12 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 		attribute.Int(AttrGenAIInputTokens, res.InputTokens),
 		attribute.Int(AttrGenAIOutputTokens, res.OutputTokens),
 	)
+	if res.FinishReason != "" {
+		s.span.SetAttributes(attribute.String(AttrGenAIFinishReason, res.FinishReason))
+	}
+	if res.ReasoningTokens > 0 {
+		s.span.SetAttributes(attribute.Int(AttrGenAIReasoningTokens, res.ReasoningTokens))
+	}
 	if err != nil {
 		RecordError(s.span, err, err.Error())
 		slog.ErrorContext(s.ctx,
@@ -73,6 +89,8 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 			"operation", s.info.Operation, "provider", s.info.Provider,
 			"request_model", s.info.RequestModel, "response_model", res.ResponseModel,
 			"input_tokens", res.InputTokens, "output_tokens", res.OutputTokens,
+			"reasoning_tokens", res.ReasoningTokens, "finish_reason", res.FinishReason,
+			"flow_name", s.info.FlowName,
 			"duration_ms", dur.Milliseconds())
 	}
 	s.span.End()

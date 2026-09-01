@@ -72,3 +72,53 @@ func TestStartLLMCall(t *testing.T) {
 	})
 	root.End()
 }
+
+func TestLLMSpanEmitsReasoningAttributes(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	ctx, root := tp.Tracer("t").Start(context.Background(), "root")
+
+	_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
+		Operation: "chat", Provider: "openrouter",
+		RequestModel: "anthropic/claude-sonnet-5", FlowName: "agent",
+	})
+	ls.End(telemetry.LLMResult{
+		ResponseModel: "anthropic/claude-sonnet-5",
+		InputTokens:   100, OutputTokens: 700,
+		ReasoningTokens: 700, FinishReason: "length",
+	}, nil)
+	root.End()
+
+	attrs := map[string]any{}
+	for _, kv := range rec.Ended()[0].Attributes() {
+		attrs[string(kv.Key)] = kv.Value.AsInterface()
+	}
+	if got := attrs[telemetry.AttrGenAIFlowName]; got != "agent" {
+		t.Errorf("flow name = %v, want agent", got)
+	}
+	if got := attrs[telemetry.AttrGenAIFinishReason]; got != "length" {
+		t.Errorf("finish reason = %v, want length", got)
+	}
+	if got := attrs[telemetry.AttrGenAIReasoningTokens]; got != int64(700) {
+		t.Errorf("reasoning tokens = %v, want 700", got)
+	}
+}
+
+func TestLLMSpanOmitsUnsetReasoningAttributes(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	ctx, root := tp.Tracer("t").Start(context.Background(), "root")
+
+	_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
+		Operation: "chat", Provider: "openrouter", RequestModel: "m",
+	})
+	ls.End(telemetry.LLMResult{InputTokens: 1, OutputTokens: 2}, nil)
+	root.End()
+
+	for _, kv := range rec.Ended()[0].Attributes() {
+		switch string(kv.Key) {
+		case telemetry.AttrGenAIFlowName, telemetry.AttrGenAIFinishReason:
+			t.Errorf("unset field emitted attribute %s", kv.Key)
+		}
+	}
+}
