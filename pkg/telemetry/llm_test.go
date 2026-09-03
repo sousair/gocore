@@ -104,6 +104,68 @@ func TestLLMSpanEmitsReasoningAttributes(t *testing.T) {
 	}
 }
 
+func TestLLMCacheTokens(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	ctx, _ := tp.Tracer("t").Start(context.Background(), "root")
+
+	t.Run("given cache counts/when End/then span carries both attrs", func(t *testing.T) {
+		_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
+			Operation: "chat", Provider: "openrouter", RequestModel: "m",
+		})
+		ls.End(telemetry.LLMResult{
+			ResponseModel: "m-1", InputTokens: 24790,
+			CachedInputTokens: 6785, CacheWriteTokens: 18005,
+		}, nil)
+
+		spans := rec.Ended()
+		attrs := map[string]any{}
+		for _, kv := range spans[len(spans)-1].Attributes() {
+			attrs[string(kv.Key)] = kv.Value.AsInterface()
+		}
+		if attrs["gen_ai.usage.cached_input_tokens"] != int64(6785) {
+			t.Fatalf("cached: %v", attrs)
+		}
+		if attrs["gen_ai.usage.cache_write_tokens"] != int64(18005) {
+			t.Fatalf("write: %v", attrs)
+		}
+	})
+
+	t.Run("given no cache counts/when End/then attrs absent", func(t *testing.T) {
+		_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
+			Operation: "chat", Provider: "openrouter", RequestModel: "m",
+		})
+		ls.End(telemetry.LLMResult{ResponseModel: "m-1", InputTokens: 10}, nil)
+
+		spans := rec.Ended()
+		for _, kv := range spans[len(spans)-1].Attributes() {
+			if strings.HasPrefix(string(kv.Key), "gen_ai.usage.cache") {
+				t.Fatalf("unset cache count emitted: %s", kv.Key)
+			}
+		}
+	})
+
+	t.Run("given cache counts/when End/then genai.call log carries them", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+		defer slog.SetDefault(prev)
+
+		_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
+			Operation: "chat", Provider: "openrouter", RequestModel: "m",
+		})
+		ls.End(telemetry.LLMResult{ResponseModel: "m-1", CachedInputTokens: 6785}, nil)
+
+		var logRec map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &logRec); err != nil {
+			t.Fatalf("genai log not json: %q", buf.String())
+		}
+		if logRec["cached_input_tokens"] != float64(6785) {
+			t.Fatalf("log: %v", logRec)
+		}
+	})
+}
+
 func TestLLMSpanOmitsUnsetReasoningAttributes(t *testing.T) {
 	rec := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))

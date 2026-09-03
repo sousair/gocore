@@ -42,6 +42,18 @@ const (
 	// the caller never receives as text.
 	AttrGenAIReasoningTokens = "gen_ai.usage.reasoning_tokens"
 
+	// AttrGenAICachedInputTokens is the share of input tokens the provider
+	// served from its prompt cache. Not in the semantic conventions: without it
+	// a request whose prefix was reused and one that paid full price for every
+	// token are indistinguishable on the span.
+	AttrGenAICachedInputTokens = "gen_ai.usage.cached_input_tokens"
+
+	// AttrGenAICacheWriteTokens is the share of input tokens written to the
+	// prompt cache. Writes bill above base rate, so a prefix rewritten on every
+	// call costs more than one that is never cached at all — a failure mode the
+	// read count alone cannot show.
+	AttrGenAICacheWriteTokens = "gen_ai.usage.cache_write_tokens"
+
 	// OpExecuteTool is the gen_ai.operation.name value for a tool execution.
 	OpExecuteTool = "execute_tool"
 )

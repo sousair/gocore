@@ -30,6 +30,11 @@ type LLMResult struct {
 	ReasoningTokens int
 	// FinishReason is the provider's stop reason, verbatim.
 	FinishReason string
+	// CachedInputTokens is the share of InputTokens served from the provider's
+	// prompt cache.
+	CachedInputTokens int
+	// CacheWriteTokens is the share of InputTokens written to the prompt cache.
+	CacheWriteTokens int
 }
 
 type LLMSpan struct {
@@ -72,6 +77,12 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 	if res.ReasoningTokens > 0 {
 		s.span.SetAttributes(attribute.Int(AttrGenAIReasoningTokens, res.ReasoningTokens))
 	}
+	if res.CachedInputTokens > 0 {
+		s.span.SetAttributes(attribute.Int(AttrGenAICachedInputTokens, res.CachedInputTokens))
+	}
+	if res.CacheWriteTokens > 0 {
+		s.span.SetAttributes(attribute.Int(AttrGenAICacheWriteTokens, res.CacheWriteTokens))
+	}
 	if err != nil {
 		RecordError(s.span, err, err.Error())
 		slog.ErrorContext(s.ctx,
@@ -90,6 +101,7 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 			"request_model", s.info.RequestModel, "response_model", res.ResponseModel,
 			"input_tokens", res.InputTokens, "output_tokens", res.OutputTokens,
 			"reasoning_tokens", res.ReasoningTokens, "finish_reason", res.FinishReason,
+			"cached_input_tokens", res.CachedInputTokens, "cache_write_tokens", res.CacheWriteTokens,
 			"flow_name", s.info.FlowName,
 			"duration_ms", dur.Milliseconds())
 	}
