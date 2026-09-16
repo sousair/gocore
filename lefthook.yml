@@ -1,0 +1,44 @@
+pre-commit:
+  commands:
+    gitleaks:
+      run: bin/gitleaks git --staged --redact --no-banner .
+    golangci-lint:
+      glob: "*.go"
+      # v2 renamed --fast to --fast-only. Measured ~0.3s here — cheap enough for
+      # pre-commit; the full `make lint` pass still gates CI.
+      run: bin/golangci-lint run --new-from-rev=HEAD --fast-only
+
+pre-push:
+  commands:
+    gitleaks:
+      # lefthook has a built-in convenience gate on pre-push commands: skip
+      # if the push's own file diff (HEAD vs @{push}) is empty — e.g. a
+      # commit that adds then removes a file nets to no diff, even though
+      # the secret is still in history. That gate only lifts once the `run`
+      # string references a `{files}`-family template at all (undocumented,
+      # confirmed against evilmartians/lefthook#554); `: {files}` is a no-op
+      # shell statement that satisfies it without affecting the real scan,
+      # which computes its own range below.
+      #
+      # gitleaks v8.30 has no protect/detect verbs (git, dir, stdin only), so
+      # range scanning goes through `git --log-opts`. @{push} needs an
+      # already-tracked upstream; a brand-new branch/repo falls back to
+      # origin/master (gocore's default branch), and a brand-new repo with no
+      # origin/master at all falls back to scanning full history.
+      files: git ls-files -- lefthook.yml
+      run: |
+        : {files}
+        range="$(git rev-parse --symbolic-full-name '@{push}' 2>/dev/null)"
+        if [ -z "$range" ] && git rev-parse --verify origin/master >/dev/null 2>&1; then
+          range=origin/master
+        fi
+        if [ -n "$range" ]; then
+          bin/gitleaks git --log-opts="$range..HEAD" --redact --no-banner .
+        else
+          bin/gitleaks git --redact --no-banner .
+        fi
+    govulncheck:
+      files: git ls-files -- lefthook.yml
+      run: |
+        : {files}
+        bin/govulncheck ./...

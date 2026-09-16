@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+# Per-repo false positives go in a fingerprint-keyed .gitleaksignore
+# (one finding fingerprint per line, printed by gitleaks on a match), never
+# a path allowlist — an allowlist blinds the scanner to every future secret
+# in that path, not just the false positive.
