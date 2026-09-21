@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 BIN := $(PWD)/bin
 
-.PHONY: tools tools-outdated test lint setup-hooks scan-secrets vuln
+.PHONY: tools tools-outdated test lint setup-hooks scan-secrets vuln sonar
 
 # Pinned tool versions. Bumped by hand — `make tools-outdated` shows what has moved.
 # ponytail: golangci-lint download is unverified (no sha256) — the Go checksum
@@ -86,3 +86,6 @@ scan-secrets: ## gitleaks over full history, as CI/pre-push do
 
 vuln: ## govulncheck against the module
 	$(BIN)/govulncheck ./...
+
+sonar: ## opt-in SonarQube scan, on demand only — start SonarQube first: docker compose --profile sonar up -d sonarqube (in devstack)
+	./scripts/sonar-scan.sh
