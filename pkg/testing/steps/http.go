@@ -16,6 +16,8 @@ import (
 	"github.com/cucumber/godog"
 )
 
+const contentTypeJSON = "application/json"
+
 type HTTPResponse struct {
 	StatusCode int
 	Body       []byte
@@ -74,7 +76,7 @@ func (h *HTTPSteps) Post(path string, body interface{}) error {
 	if err != nil {
 		return fmt.Errorf("marshal body: %w", err)
 	}
-	return h.execute(context.Background(), http.MethodPost, path, bytes.NewReader(data), "application/json")
+	return h.execute(context.Background(), http.MethodPost, path, bytes.NewReader(data), contentTypeJSON)
 }
 
 func (h *HTTPSteps) Get(path string) error {
@@ -188,7 +190,7 @@ func (h *HTTPSteps) iSendRequest(ctx context.Context, method, path string) error
 }
 
 func (h *HTTPSteps) iSendRequestWithJSON(ctx context.Context, method, path string, body *godog.DocString) error {
-	return h.execute(ctx, method, path, strings.NewReader(body.Content), "application/json")
+	return h.execute(ctx, method, path, strings.NewReader(body.Content), contentTypeJSON)
 }
 
 func (h *HTTPSteps) iSendConcurrentRequests(ctx context.Context, count int, method, path string) error {
@@ -200,7 +202,7 @@ func (h *HTTPSteps) iSendConcurrentRequestsWithJSON(ctx context.Context, count i
 	if body != nil {
 		content = []byte(body.Content)
 	}
-	return h.executeConcurrent(ctx, count, method, path, content, "application/json")
+	return h.executeConcurrent(ctx, count, method, path, content, contentTypeJSON)
 }
 
 func (h *HTTPSteps) theResponseStatusShouldBe(_ context.Context, expected int) error {

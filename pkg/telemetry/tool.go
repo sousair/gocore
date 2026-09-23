@@ -30,6 +30,8 @@ type ToolCallResult struct {
 	ErrorCode string
 }
 
+const eventGenAITool = "genai.tool"
+
 type ToolSpan struct {
 	ctx   context.Context
 	span  trace.Span
@@ -70,7 +72,7 @@ func (s *ToolSpan) End(res ToolCallResult, err error) {
 		slog.ErrorContext(s.ctx,
 			fmt.Sprintf("genai.tool %s failed: %s", s.info.Name, err.Error()),
 			Err(err),
-			slog.String("event", "genai.tool"),
+			slog.String("event", eventGenAITool),
 			slog.String("tool", s.info.Name),
 			slog.Int64("duration_ms", dur.Milliseconds()))
 
@@ -80,7 +82,7 @@ func (s *ToolSpan) End(res ToolCallResult, err error) {
 		}
 		slog.WarnContext(s.ctx,
 			fmt.Sprintf("genai.tool %s rejected: %s", s.info.Name, res.ErrorCode),
-			slog.String("event", "genai.tool"),
+			slog.String("event", eventGenAITool),
 			slog.String("tool", s.info.Name),
 			slog.String("error_code", res.ErrorCode),
 			slog.Int64("duration_ms", dur.Milliseconds()))
@@ -88,7 +90,7 @@ func (s *ToolSpan) End(res ToolCallResult, err error) {
 	default:
 		slog.InfoContext(s.ctx,
 			fmt.Sprintf("genai.tool %s ok %s", s.info.Name, dur.Round(time.Millisecond)),
-			slog.String("event", "genai.tool"),
+			slog.String("event", eventGenAITool),
 			slog.String("tool", s.info.Name),
 			slog.Int64("duration_ms", dur.Milliseconds()))
 	}
