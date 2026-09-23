@@ -32,6 +32,9 @@ func TestHTML(t *testing.T) {
 		{"blockquote", "> quote text\n", "<blockquote>quote text</blockquote>"},
 		{"image dropped keeps alt", "![alt](http://img.example/x.png)", "alt"},
 		{"link destination quote escaped", `[t](<http://e.com/"y>)`, `<a href="http://e.com/&quot;y">t</a>`},
+		{"inline raw html escaped", "before <span>inline</span> after", "before &lt;span&gt;inline&lt;/span&gt; after"},
+		{"html block with closure line escaped", "<script>\nvar x = 1;\n</script>\nafter\n",
+			"&lt;script&gt;\nvar x = 1;\n&lt;/script&gt;\n\nafter"},
 	}
 	for _, c := range cases {
 		if got := HTML(c.in); got != c.want {

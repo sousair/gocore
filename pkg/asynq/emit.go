@@ -24,8 +24,6 @@ func parseEventOptions(opt *event.EventOptions) []asynqp.Option {
 		opts = append(opts, asynqp.ProcessAt(opt.ProcessAt))
 	}
 
-	// TODO: Handle metadata
-
 	return opts
 }
 

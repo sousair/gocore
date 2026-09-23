@@ -221,44 +221,47 @@ func matchesQuery(record, query reflect.Value) bool {
 	}
 
 	for i := 0; i < query.NumField(); i++ {
-		queryField := query.Field(i)
-		fieldType := query.Type().Field(i)
-
-		if fieldType.Anonymous && queryField.Kind() == reflect.Struct {
-			recordEmbedded := record.FieldByName(fieldType.Name)
-			if recordEmbedded.IsValid() {
-				if !matchesQuery(recordEmbedded, queryField) {
-					return false
-				}
-			}
-			continue
-		}
-
-		if queryField.IsZero() {
-			continue
-		}
-
-		fieldName := fieldType.Name
-		if queryField.Kind() == reflect.Ptr && queryField.Type().Elem().Kind() == reflect.Struct {
-			if !strings.HasSuffix(fieldName, "ID") {
-				continue
-			}
-		}
-		if queryField.Kind() == reflect.Slice {
-			continue
-		}
-
-		recordField := record.FieldByName(fieldName)
-		if !recordField.IsValid() {
-			continue
-		}
-
-		if !reflect.DeepEqual(queryField.Interface(), recordField.Interface()) {
+		if !fieldMatches(record, query.Field(i), query.Type().Field(i)) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// fieldMatches reports whether record satisfies the query's constraint for
+// one field. A field the query leaves unconstrained — zero-valued, a slice,
+// or a non-"...ID" pointer-to-struct (association preloads use these) —
+// always reports true.
+func fieldMatches(record, queryField reflect.Value, fieldType reflect.StructField) bool {
+	if fieldType.Anonymous && queryField.Kind() == reflect.Struct {
+		recordEmbedded := record.FieldByName(fieldType.Name)
+		if !recordEmbedded.IsValid() {
+			return true
+		}
+		return matchesQuery(recordEmbedded, queryField)
+	}
+
+	if queryField.IsZero() || isUnqueryableField(queryField, fieldType.Name) {
+		return true
+	}
+
+	recordField := record.FieldByName(fieldType.Name)
+	if !recordField.IsValid() {
+		return true
+	}
+
+	return reflect.DeepEqual(queryField.Interface(), recordField.Interface())
+}
+
+func isUnqueryableField(queryField reflect.Value, fieldName string) bool {
+	if queryField.Kind() == reflect.Slice {
+		return true
+	}
+	if queryField.Kind() == reflect.Ptr && queryField.Type().Elem().Kind() == reflect.Struct {
+		return !strings.HasSuffix(fieldName, "ID")
+	}
+	return false
 }
 
 func isDeleted(v reflect.Value) bool {

@@ -204,6 +204,59 @@ func TestDeleteMany(t *testing.T) {
 	assert.Equal(t, "c", repo.Records()[0].Name)
 }
 
+// refValue is a plain struct used to exercise matchesQuery's handling of
+// pointer-to-struct fields, which real entities rarely have.
+type refValue struct{ V int }
+
+type QueryFieldsEntity struct {
+	entity.BaseEntity
+	Label   string
+	OwnerID *refValue
+	Owner   *refValue
+	Tags    []string
+}
+
+func (e QueryFieldsEntity) GetID() uuid.UUID { return e.ID }
+
+func TestMatchesQuery_PointerToStructFieldWithIDSuffixIsCompared(t *testing.T) {
+	repo := NewRepository[QueryFieldsEntity]()
+	ctx := context.Background()
+
+	repo.Create(ctx, &QueryFieldsEntity{OwnerID: &refValue{V: 1}})
+	target, _ := repo.Create(ctx, &QueryFieldsEntity{OwnerID: &refValue{V: 2}})
+
+	found, err := repo.FindOne(ctx, &QueryFieldsEntity{OwnerID: &refValue{V: 2}})
+
+	require.NoError(t, err)
+	assert.Equal(t, target.ID, found.ID)
+}
+
+func TestMatchesQuery_PointerToStructFieldWithoutIDSuffixIsIgnored(t *testing.T) {
+	repo := NewRepository[QueryFieldsEntity]()
+	ctx := context.Background()
+
+	repo.Create(ctx, &QueryFieldsEntity{Label: "first", Owner: &refValue{V: 1}})
+	target, _ := repo.Create(ctx, &QueryFieldsEntity{Label: "second", Owner: &refValue{V: 2}})
+
+	found, err := repo.FindOne(ctx, &QueryFieldsEntity{Label: "second", Owner: &refValue{V: 999}})
+
+	require.NoError(t, err)
+	assert.Equal(t, target.ID, found.ID)
+}
+
+func TestMatchesQuery_SliceFieldIsIgnored(t *testing.T) {
+	repo := NewRepository[QueryFieldsEntity]()
+	ctx := context.Background()
+
+	repo.Create(ctx, &QueryFieldsEntity{Label: "first", Tags: []string{"a"}})
+	target, _ := repo.Create(ctx, &QueryFieldsEntity{Label: "second", Tags: []string{"b"}})
+
+	found, err := repo.FindOne(ctx, &QueryFieldsEntity{Label: "second", Tags: []string{"z"}})
+
+	require.NoError(t, err)
+	assert.Equal(t, target.ID, found.ID)
+}
+
 func TestMatchesQuery_MultipleFields(t *testing.T) {
 	repo := NewRepository[TestEntity]()
 	ctx := context.Background()

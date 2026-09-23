@@ -66,13 +66,7 @@ func renderNode(b *strings.Builder, n ast.Node, src []byte, lc listCtx) {
 	case *ast.String:
 		b.WriteString(Escape(string(node.Value)))
 	case *ast.Emphasis:
-		tag := "i"
-		if node.Level == 2 {
-			tag = "b"
-		}
-		b.WriteString("<" + tag + ">")
-		renderChildren(b, n, src, lc)
-		b.WriteString("</" + tag + ">")
+		renderEmphasis(b, node, n, src, lc)
 	case *extastnode.Strikethrough:
 		b.WriteString("<s>")
 		renderChildren(b, n, src, lc)
@@ -83,11 +77,7 @@ func renderNode(b *strings.Builder, n ast.Node, src []byte, lc listCtx) {
 		b.WriteString("</code>")
 	case *ast.FencedCodeBlock, *ast.CodeBlock:
 		b.WriteString("<pre>")
-		lines := node.Lines()
-		for i := 0; i < lines.Len(); i++ {
-			seg := lines.At(i)
-			b.WriteString(Escape(string(seg.Value(src))))
-		}
+		writeLines(b, node.Lines(), src)
 		b.WriteString("</pre>\n")
 	case *ast.Link:
 		b.WriteString(`<a href="`)
@@ -105,23 +95,9 @@ func renderNode(b *strings.Builder, n ast.Node, src []byte, lc listCtx) {
 	case *ast.Image:
 		renderChildren(b, n, src, lc)
 	case *ast.List:
-		i := node.Start
-		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-			renderNode(b, c, src, listCtx{ordered: node.IsOrdered(), index: i})
-			i++
-		}
+		renderList(b, node, n, src)
 	case *ast.ListItem:
-		if lc.ordered {
-			b.WriteString(strconv.Itoa(lc.index))
-			b.WriteString(". ")
-		} else {
-			b.WriteString("• ")
-		}
-		before := b.Len()
-		renderChildren(b, n, src, lc)
-		if b.Len() == before || b.String()[b.Len()-1] != '\n' {
-			b.WriteString("\n")
-		}
+		renderListItem(b, n, src, lc)
 	case *ast.Blockquote:
 		b.WriteString("<blockquote>")
 		renderChildren(b, n, src, lc)
@@ -130,19 +106,11 @@ func renderNode(b *strings.Builder, n ast.Node, src []byte, lc listCtx) {
 	case *ast.ThematicBreak:
 		b.WriteString("\n")
 	case *ast.RawHTML:
-		for i := 0; i < node.Segments.Len(); i++ {
-			seg := node.Segments.At(i)
-			b.WriteString(Escape(string(seg.Value(src))))
-		}
+		writeLines(b, node.Segments, src)
 	case *ast.HTMLBlock:
-		lines := node.Lines()
-		for i := 0; i < lines.Len(); i++ {
-			seg := lines.At(i)
-			b.WriteString(Escape(string(seg.Value(src))))
-		}
+		writeLines(b, node.Lines(), src)
 		if node.HasClosure() {
-			closure := node.ClosureLine
-			b.WriteString(Escape(string(closure.Value(src))))
+			b.WriteString(Escape(string(node.ClosureLine.Value(src))))
 		}
 		b.WriteString("\n")
 	default:
@@ -167,6 +135,45 @@ func inlineText(n ast.Node, src []byte) string {
 		}
 	}
 	return b.String()
+}
+
+func renderEmphasis(b *strings.Builder, node *ast.Emphasis, n ast.Node, src []byte, lc listCtx) {
+	tag := "i"
+	if node.Level == 2 {
+		tag = "b"
+	}
+	b.WriteString("<" + tag + ">")
+	renderChildren(b, n, src, lc)
+	b.WriteString("</" + tag + ">")
+}
+
+func renderList(b *strings.Builder, node *ast.List, n ast.Node, src []byte) {
+	i := node.Start
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		renderNode(b, c, src, listCtx{ordered: node.IsOrdered(), index: i})
+		i++
+	}
+}
+
+func renderListItem(b *strings.Builder, n ast.Node, src []byte, lc listCtx) {
+	if lc.ordered {
+		b.WriteString(strconv.Itoa(lc.index))
+		b.WriteString(". ")
+	} else {
+		b.WriteString("• ")
+	}
+	before := b.Len()
+	renderChildren(b, n, src, lc)
+	if b.Len() == before || b.String()[b.Len()-1] != '\n' {
+		b.WriteString("\n")
+	}
+}
+
+func writeLines(b *strings.Builder, lines *text.Segments, src []byte) {
+	for i := 0; i < lines.Len(); i++ {
+		seg := lines.At(i)
+		b.WriteString(Escape(string(seg.Value(src))))
+	}
 }
 
 func trimTrailingNewline(b *strings.Builder) {
