@@ -24,7 +24,6 @@ type (
 		MaxRetries int
 		Delay      time.Duration
 		ProcessAt  time.Time
-		Metadata   map[string]any
 	}
 )
 

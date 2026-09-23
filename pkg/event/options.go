@@ -19,9 +19,3 @@ func WithProcessAt(processAt time.Time) Option {
 		eo.ProcessAt = processAt
 	}
 }
-
-func WithMetadata(metadata map[string]any) Option {
-	return func(eo *EventOptions) {
-		eo.Metadata = metadata
-	}
-}
