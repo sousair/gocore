@@ -29,23 +29,32 @@ func openTags(s string) []string {
 			continue
 		}
 		if tag[0] == '/' {
-			name := tag[1:]
-			for j := len(stack) - 1; j >= 0; j-- {
-				if stack[j] == name {
-					stack = append(stack[:j], stack[j+1:]...)
-					break
-				}
-			}
+			stack = closeOpenTag(stack, tag[1:])
 			continue
 		}
-		// opening tag: name is up to first space (e.g. `a href="..."`)
-		name := tag
-		if sp := strings.IndexByte(tag, ' '); sp >= 0 {
-			name = tag[:sp]
-		}
-		stack = append(stack, name)
+		stack = append(stack, tagName(tag))
 	}
 	return stack
+}
+
+// closeOpenTag removes the innermost occurrence of name from stack. An
+// unmatched close is a no-op — malformed input just carries the stray open
+// state forward.
+func closeOpenTag(stack []string, name string) []string {
+	for j := len(stack) - 1; j >= 0; j-- {
+		if stack[j] == name {
+			return append(stack[:j], stack[j+1:]...)
+		}
+	}
+	return stack
+}
+
+// tagName returns the element name, stripping any attributes (e.g. `a href="..."`).
+func tagName(tag string) string {
+	if sp := strings.IndexByte(tag, ' '); sp >= 0 {
+		return tag[:sp]
+	}
+	return tag
 }
 
 // closeTags returns the closing tags for open in LIFO order.
@@ -114,47 +123,63 @@ func Split(s string) []string {
 	}
 	var out []string
 	for len(s) > MaxLen {
-		cut := MaxLen
-		if nl := strings.LastIndexByte(s[:cut], '\n'); nl > 0 {
-			cut = nl
-		} else if sp := strings.LastIndexByte(s[:cut], ' '); sp > 0 {
-			cut = sp
-		}
-		chunk := safeCut(s, cut)
-		open := openTags(chunk)
-		tail := closeTags(open)
-		// Shrink chunk if closing tags push it over MaxLen.
-		for len(chunk)+len(tail) > MaxLen && len(chunk) > 0 {
-			// Decrement by max(1, chunk/8) to make progress with nested tags.
-			decr := len(chunk) / 8
-			if decr == 0 {
-				decr = 1
-			}
-			chunk = safeCut(chunk, len(chunk)-decr)
-			open = openTags(chunk)
-			tail = closeTags(open)
-		}
-		out = append(out, chunk+tail)
-		s = strings.TrimLeft(s[len(chunk):], " \n")
-		// reopen tags that were open across the boundary
-		if len(open) > 0 {
-			var b strings.Builder
-			for _, t := range open {
-				b.WriteString("<")
-				b.WriteString(t)
-				b.WriteString(">")
-			}
-			reopen := b.String()
-			// Guard forward progress: only reopen if the prefix is shorter than
-			// the chunk it follows, so s can't grow across iterations (bounds
-			// pathological deep-nesting inputs against non-termination).
-			if len(reopen) < len(chunk) {
-				s = reopen + s
-			}
-		}
+		chunk, open := shrinkChunkToFit(safeCut(s, splitCutPoint(s)))
+		out = append(out, chunk+closeTags(open))
+		s = reopenCarriedTags(open, chunk, strings.TrimLeft(s[len(chunk):], " \n"))
 	}
 	if s != "" {
 		out = append(out, s)
 	}
 	return out
+}
+
+// splitCutPoint returns the byte offset within s[:MaxLen] to cut on: the last
+// newline if there is one, else the last space, else MaxLen itself.
+func splitCutPoint(s string) int {
+	cut := MaxLen
+	if nl := strings.LastIndexByte(s[:cut], '\n'); nl > 0 {
+		return nl
+	}
+	if sp := strings.LastIndexByte(s[:cut], ' '); sp > 0 {
+		return sp
+	}
+	return cut
+}
+
+// shrinkChunkToFit trims chunk until it plus its still-open tags' closing
+// tags fits MaxLen, returning the trimmed chunk and its open tags.
+func shrinkChunkToFit(chunk string) (string, []string) {
+	open := openTags(chunk)
+	for len(chunk)+len(closeTags(open)) > MaxLen && len(chunk) > 0 {
+		// Decrement by max(1, chunk/8) to make progress with nested tags.
+		decr := len(chunk) / 8
+		if decr == 0 {
+			decr = 1
+		}
+		chunk = safeCut(chunk, len(chunk)-decr)
+		open = openTags(chunk)
+	}
+	return chunk, open
+}
+
+// reopenCarriedTags prepends open's tags to s so a chunk boundary mid-nesting
+// doesn't lose the enclosing element in the next chunk. Guards forward
+// progress: only reopens if the prefix is shorter than the chunk it follows,
+// so s can't grow across iterations (bounds pathological deep-nesting inputs
+// against non-termination).
+func reopenCarriedTags(open []string, chunk, s string) string {
+	if len(open) == 0 {
+		return s
+	}
+	var b strings.Builder
+	for _, t := range open {
+		b.WriteString("<")
+		b.WriteString(t)
+		b.WriteString(">")
+	}
+	reopen := b.String()
+	if len(reopen) < len(chunk) {
+		return reopen + s
+	}
+	return s
 }

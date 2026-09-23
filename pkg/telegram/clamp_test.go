@@ -6,6 +6,36 @@ import (
 	"unicode/utf8"
 )
 
+func TestOpenTags(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"none", "plain text", nil},
+		{"single open", "<b>text", []string{"b"}},
+		{"balanced", "<b>text</b>", nil},
+		{"nested", "<b><i>text</i>", []string{"b"}},
+		{"attribute stripped", `<a href="http://x">text`, []string{"a"}},
+		{"unmatched close ignored", "</b>text", nil},
+		{"empty tag skipped", "<>text<b>", []string{"b"}},
+		{"unterminated tag stops scan", "text<b", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := openTags(c.in)
+			if len(got) != len(c.want) {
+				t.Fatalf("openTags(%q) = %v, want %v", c.in, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("openTags(%q) = %v, want %v", c.in, got, c.want)
+				}
+			}
+		})
+	}
+}
+
 func TestClampShortUnchanged(t *testing.T) {
 	if got := Clamp("hello <b>world</b>"); got != "hello <b>world</b>" {
 		t.Fatalf("short input changed: %q", got)

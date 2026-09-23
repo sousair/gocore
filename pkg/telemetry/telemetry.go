@@ -63,14 +63,10 @@ type Config struct {
 	Writer         io.Writer // default os.Stdout; tests inject a buffer
 }
 
-// Init wires the global TracerProvider, MeterProvider, W3C trace propagator,
-// and default slog logger. OTLP trace+log+metric export (and Go runtime
-// metrics) activates iff OTEL_EXPORTER_OTLP_ENDPOINT is set; stdout JSON
-// logging is always on. Returned shutdown flushes exporters; call it on
-// process exit.
-func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) {
+// resolveConfig validates the required fields and applies Config's defaults.
+func resolveConfig(cfg Config) (Config, error) {
 	if cfg.ServiceName == "" {
-		return nil, errors.New("telemetry: ServiceName is required")
+		return cfg, errors.New("telemetry: ServiceName is required")
 	}
 	if cfg.ServiceVersion == "" {
 		cfg.ServiceVersion = "dev"
@@ -80,6 +76,19 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 	}
 	if cfg.Writer == nil {
 		cfg.Writer = os.Stdout
+	}
+	return cfg, nil
+}
+
+// Init wires the global TracerProvider, MeterProvider, W3C trace propagator,
+// and default slog logger. OTLP trace+log+metric export (and Go runtime
+// metrics) activates iff OTEL_EXPORTER_OTLP_ENDPOINT is set; stdout JSON
+// logging is always on. Returned shutdown flushes exporters; call it on
+// process exit.
+func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) {
+	cfg, err := resolveConfig(cfg)
+	if err != nil {
+		return nil, err
 	}
 	otlpOn := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != ""
 
