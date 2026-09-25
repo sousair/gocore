@@ -1,12 +1,21 @@
 pre-commit:
   commands:
     gitleaks:
-      run: bin/gitleaks git --staged --redact --no-banner .
+      run: |
+        gitleaks="$(scripts/hook-tool.sh gitleaks)" || exit 1
+        "$gitleaks" git --staged --redact --no-banner .
     golangci-lint:
       glob: "*.go"
       # v2 renamed --fast to --fast-only. Measured ~0.3s here — cheap enough for
-      # pre-commit; the full `make lint` pass still gates CI.
-      run: bin/golangci-lint run --new-from-rev=HEAD --fast-only
+      # pre-commit; the full `make lint` pass still gates CI. Unlike the
+      # security checks it skips (loudly) when the binary is missing: the jail
+      # image does not ship it, and CI's `make lint` is the gate that counts.
+      run: |
+        lint="$(scripts/hook-tool.sh golangci-lint 2>/dev/null)" || {
+          echo "golangci-lint not installed: diff lint skipped, 'make lint' still gates CI (run 'make tools')" >&2
+          exit 0
+        }
+        "$lint" run --new-from-rev=HEAD --fast-only
 
 pre-push:
   commands:
@@ -28,17 +37,19 @@ pre-push:
       files: git ls-files -- lefthook.yml
       run: |
         : {files}
+        gitleaks="$(scripts/hook-tool.sh gitleaks)" || exit 1
         range="$(git rev-parse --symbolic-full-name '@{push}' 2>/dev/null)"
         if [ -z "$range" ] && git rev-parse --verify origin/master >/dev/null 2>&1; then
           range=origin/master
         fi
         if [ -n "$range" ]; then
-          bin/gitleaks git --log-opts="$range..HEAD" --redact --no-banner .
+          "$gitleaks" git --log-opts="$range..HEAD" --redact --no-banner .
         else
-          bin/gitleaks git --redact --no-banner .
+          "$gitleaks" git --redact --no-banner .
         fi
     govulncheck:
       files: git ls-files -- lefthook.yml
       run: |
         : {files}
-        bin/govulncheck ./...
+        govulncheck="$(scripts/hook-tool.sh govulncheck)" || exit 1
+        "$govulncheck" ./...
