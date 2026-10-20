@@ -38,17 +38,6 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	// semconv v1.26.0 (pinned by the task brief) predates the
-	// DeploymentEnvironmentName helper. resource.Default() in the resolved
-	// sdk v1.44.0 bakes in semconv v1.41.0 internally (see
-	// sdk/resource/builtin.go), and resource.Merge rejects mixed schema
-	// URLs (resource.ErrSchemaURLConflict), so our own resource attrs must
-	// use the matching v1.41.0 package rather than the newest-with-the-
-	// helper v1.27.0-v1.40.0. v1.41.0 also dropped the
-	// DeploymentEnvironmentName(val) convenience func (present in
-	// v1.27.0-v1.40.0) in favor of the bare
-	// DeploymentEnvironmentNameKey.String(val) — used below. The wire
-	// attribute name is unchanged: "deployment.environment.name".
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"github.com/sousair/gocore/pkg/env"
@@ -92,8 +81,10 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 	}
 	otlpOn := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != ""
 
-	res, err := resource.Merge(resource.Default(), resource.NewWithAttributes(
-		semconv.SchemaURL,
+	// Schemaless: resource.Default() carries the SDK's own semconv schema,
+	// and Merge rejects two different schema URLs, which panicked at boot
+	// whenever an otel bump moved the SDK's schema past our semconv import.
+	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
 		semconv.ServiceName(cfg.ServiceName),
 		semconv.ServiceVersion(cfg.ServiceVersion),
 		semconv.DeploymentEnvironmentNameKey.String(cfg.Environment),
