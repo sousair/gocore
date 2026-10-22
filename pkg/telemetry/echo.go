@@ -59,6 +59,7 @@ func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
 		"http.server.request.duration",
 		metric.WithUnit("s"),
 		metric.WithDescription("Duration of HTTP server requests."),
+		metric.WithExplicitBucketBoundaries(durationBuckets...),
 	)
 	if err != nil {
 		panic(err)

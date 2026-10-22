@@ -1,6 +1,6 @@
 module github.com/sousair/gocore
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/cucumber/godog v0.15.1

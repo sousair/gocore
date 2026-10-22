@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -202,6 +203,9 @@ func TestRiverWorkerMiddleware(t *testing.T) {
 		for _, p := range points {
 			if p.Count != 1 {
 				t.Fatalf("want count 1 per data point, got %d", p.Count)
+			}
+			if !slices.Equal(p.Bounds, telemetry.DurationBuckets) {
+				t.Fatalf("want second-scale bounds %v, got %v", telemetry.DurationBuckets, p.Bounds)
 			}
 			for _, a := range p.Attributes.ToSlice() {
 				if a.Key == "river.outcome" {
