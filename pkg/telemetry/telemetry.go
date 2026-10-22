@@ -147,6 +147,7 @@ func Init(ctx context.Context, cfg Config) (func(context.Context) error, error) 
 		mp = sdkmetric.NewMeterProvider(
 			sdkmetric.WithResource(res),
 			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp)),
+			sdkmetric.WithView(dbDurationView()),
 		)
 		shutdowns = append(shutdowns, mp.Shutdown)
 		if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {

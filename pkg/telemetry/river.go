@@ -112,6 +112,7 @@ func RiverWorkerMiddleware() rivertype.WorkerMiddleware {
 		"river.job.duration",
 		metric.WithUnit("s"),
 		metric.WithDescription("Duration of River job work attempts."),
+		metric.WithExplicitBucketBoundaries(durationBuckets...),
 	)
 	if err != nil {
 		panic(err)

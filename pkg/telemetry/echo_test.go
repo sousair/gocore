@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -235,6 +236,9 @@ func TestEchoMiddleware(t *testing.T) {
 		}
 		if points[0].Count != 1 {
 			t.Fatalf("want count 1, got %d", points[0].Count)
+		}
+		if !slices.Equal(points[0].Bounds, telemetry.DurationBuckets) {
+			t.Fatalf("want second-scale bounds %v, got %v", telemetry.DurationBuckets, points[0].Bounds)
 		}
 
 		attrs := points[0].Attributes.ToSlice()
