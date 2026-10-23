@@ -24,11 +24,15 @@ func Keyboard(rows [][]Button) *telego.InlineKeyboardMarkup {
 	return tu.InlineKeyboard(kbRows...)
 }
 
-// htmlMessage is the single site where ModeHTML is applied. Both send paths
-// go through it, so the "one place sets the parse mode" invariant survives
-// having more than one kind of send.
+// htmlMessage and htmlEdit are the only sites where ModeHTML is applied. Every
+// send and edit path goes through them, so the "one place sets the parse mode"
+// invariant survives having more than one kind of delivery.
 func htmlMessage(chatID int64, text string) *telego.SendMessageParams {
 	return tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML)
+}
+
+func htmlEdit(chatID int64, messageID int, text string) *telego.EditMessageTextParams {
+	return tu.EditMessageText(tu.ID(chatID), messageID, text).WithParseMode(telego.ModeHTML)
 }
 
 // messageParams builds the send params for r: HTML parse mode, clamped text,
@@ -70,6 +74,10 @@ func longMessageParams(chatID int64, r Reply) []*telego.SendMessageParams {
 // consecutive messages rather than clamped. Prefer this over Send for anything
 // a model authored — Send's Clamp silently discards the tail.
 func SendLong(ctx context.Context, bot *telego.Bot, chatID int64, r Reply) error {
+	return sendLong(ctx, bot, chatID, r)
+}
+
+func sendLong(ctx context.Context, bot Bot, chatID int64, r Reply) error {
 	for _, p := range longMessageParams(chatID, r) {
 		if _, err := bot.SendMessage(ctx, p); err != nil {
 			return err
