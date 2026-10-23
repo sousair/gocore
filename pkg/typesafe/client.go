@@ -15,9 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/sousair/gocore/pkg/telemetry"
 )
 
@@ -32,6 +29,7 @@ const (
 var (
 	ErrValidation  = errors.New("typesafe: validation")
 	ErrRateLimited = errors.New("typesafe: rate limited")
+	errServer      = errors.New("typesafe: server error")
 )
 
 // Dependencies configures a Client. BaseURL and HTTPClient default when empty.
@@ -73,11 +71,8 @@ func (c *Client) SystemOne(ctx context.Context, state any, questions map[string]
 		Operation: "chat", Provider: "typesafe", RequestModel: c.model,
 	})
 	res, err := c.call(ctx, state, questions)
-	if err == nil {
-		trace.SpanFromContext(ctx).SetAttributes(
-			attribute.Float64(telemetry.AttrGenAICostUSD, float64(res.Usage.InputTokens)*inputUSDPerToken))
-	}
 	span.End(telemetry.LLMResult{
+		CostUSD:       float64(res.Usage.InputTokens) * inputUSDPerToken,
 		ResponseModel: res.Model,
 		InputTokens:   res.Usage.InputTokens,
 		OutputTokens:  res.Usage.OutputTokens,
@@ -110,8 +105,6 @@ func (c *Client) call(ctx context.Context, state any, questions map[string]Quest
 	}
 }
 
-var errServer = errors.New("typesafe: server error")
-
 // post performs one attempt, returning how long to wait if it is retryable.
 func (c *Client) post(ctx context.Context, body []byte) (Response, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/systemone", bytes.NewReader(body))
@@ -125,7 +118,10 @@ func (c *Client) post(ctx context.Context, body []byte) (Response, time.Duration
 	if err != nil {
 		return Response{}, 0, fmt.Errorf("typesafe: call: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4<<10))
+		_ = res.Body.Close()
+	}()
 
 	switch {
 	case res.StatusCode == http.StatusOK:
@@ -139,9 +135,14 @@ func (c *Client) post(ctx context.Context, body []byte) (Response, time.Duration
 	case res.StatusCode == http.StatusUnprocessableEntity:
 		return Response{}, 0, fmt.Errorf("%w: %s", ErrValidation, validationDetail(res.Body))
 	case res.StatusCode >= 500:
-		return Response{}, 0, fmt.Errorf("%w: status %d", errServer, res.StatusCode)
+		return Response{}, 0, fmt.Errorf("%w: status %d: %s", errServer, res.StatusCode, errorSnippet(res.Body))
 	}
-	return Response{}, 0, fmt.Errorf("typesafe: status %d", res.StatusCode)
+	return Response{}, 0, fmt.Errorf("typesafe: status %d: %s", res.StatusCode, errorSnippet(res.Body))
+}
+
+func errorSnippet(r io.Reader) string {
+	b, _ := io.ReadAll(io.LimitReader(r, 512))
+	return strings.TrimSpace(string(b))
 }
 
 func retryAfter(h string) time.Duration {

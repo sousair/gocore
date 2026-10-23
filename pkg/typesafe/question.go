@@ -45,7 +45,6 @@ type Answer struct {
 	Score         float64            `json:"score"`
 }
 
-// Ranked is one option with its probability.
 type Ranked struct {
 	Option      string
 	Probability float64
@@ -66,13 +65,11 @@ func (a Answer) Ranked() []Ranked {
 	return out
 }
 
-// Usage is the token accounting of one call.
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 }
 
-// Response is the decoded System One reply.
 type Response struct {
 	Model   string            `json:"model"`
 	Answers map[string]Answer `json:"answers"`

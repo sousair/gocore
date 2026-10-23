@@ -35,6 +35,8 @@ type LLMResult struct {
 	CachedInputTokens int
 	// CacheWriteTokens is the share of InputTokens written to the prompt cache.
 	CacheWriteTokens int
+	// CostUSD is the call's price, emitted only when positive.
+	CostUSD float64
 }
 
 type LLMSpan struct {
@@ -83,6 +85,9 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 	if res.CacheWriteTokens > 0 {
 		s.span.SetAttributes(attribute.Int(AttrGenAICacheWriteTokens, res.CacheWriteTokens))
 	}
+	if res.CostUSD > 0 {
+		s.span.SetAttributes(attribute.Float64(AttrGenAICostUSD, res.CostUSD))
+	}
 	if err != nil {
 		RecordError(s.span, err, err.Error())
 		slog.ErrorContext(s.ctx,
@@ -102,7 +107,7 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 			"input_tokens", res.InputTokens, "output_tokens", res.OutputTokens,
 			"reasoning_tokens", res.ReasoningTokens, "finish_reason", res.FinishReason,
 			"cached_input_tokens", res.CachedInputTokens, "cache_write_tokens", res.CacheWriteTokens,
-			"flow_name", s.info.FlowName,
+			"flow_name", s.info.FlowName, "cost_usd", res.CostUSD,
 			"duration_ms", dur.Milliseconds())
 	}
 	s.span.End()

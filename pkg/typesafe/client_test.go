@@ -132,3 +132,14 @@ func TestAnswerRanked(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestSystemOne_errorBodySurfaced(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("invalid api key"))
+	})
+	_, err := c.SystemOne(context.Background(), nil, questions())
+	if err == nil || !strings.Contains(err.Error(), "invalid api key") {
+		t.Fatalf("got %v", err)
+	}
+}
