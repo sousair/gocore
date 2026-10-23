@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mymmrac/telego"
@@ -57,11 +58,6 @@ func (b *fakeBot) DeleteMessage(_ context.Context, p *telego.DeleteMessageParams
 	return nil
 }
 
-func (b *fakeBot) SendChatAction(_ context.Context, p *telego.SendChatActionParams) error {
-	b.record(botCall{method: "action", text: p.Action})
-	return nil
-}
-
 func (b *fakeBot) snapshot() []botCall {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -78,178 +74,218 @@ func (b *fakeBot) count(method string) int {
 	return n
 }
 
-func shrinkIntervals(t *testing.T) {
-	t.Helper()
-	frame, typing := thinkingFrameEvery, typingEvery
-	thinkingFrameEvery, typingEvery = 10*time.Millisecond, 25*time.Millisecond
-	t.Cleanup(func() { thinkingFrameEvery, typingEvery = frame, typing })
+func (b *fakeBot) setErrs(send, edit error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sendErr, b.editErr = send, edit
 }
 
-func TestStartThinkingSendsPlaceholderAndTyping(t *testing.T) {
-	bot := &fakeBot{}
-	th := StartThinking(context.Background(), bot, 7)
-	defer th.Stop(context.Background())
+func (b *fakeBot) edits() []string {
+	var out []string
+	for _, c := range b.snapshot() {
+		if c.method == "edit" {
+			out = append(out, c.text)
+		}
+	}
+	return out
+}
 
-	calls := bot.snapshot()
-	if len(calls) < 2 || calls[0].method != "send" || calls[0].text != "Pensando." || calls[0].parseMode != "" {
-		t.Fatalf("first call = %+v, want plain send of Pensando.", calls)
-	}
-	if calls[1].method != "action" || calls[1].text != telego.ChatActionTyping {
-		t.Fatalf("second call = %+v, want typing action", calls[1])
-	}
+func TestStartThinkingSendsPlaceholder(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		defer th.Stop(context.Background())
+
+		calls := bot.snapshot()
+		if len(calls) != 1 || calls[0].method != "send" || calls[0].text != "Pensando." || calls[0].parseMode != "" {
+			t.Fatalf("calls = %+v, want one plain send of Pensando.", calls)
+		}
+	})
 }
 
 func TestThinkingCyclesFrames(t *testing.T) {
-	shrinkIntervals(t)
-	bot := &fakeBot{}
-	th := StartThinking(context.Background(), bot, 7)
-	time.Sleep(100 * time.Millisecond)
-	th.Stop(context.Background())
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		time.Sleep(4*thinkingFrameEvery + time.Millisecond)
+		synctest.Wait()
+		th.Stop(context.Background())
 
-	var edits []string
-	for _, c := range bot.snapshot() {
-		if c.method == "edit" {
-			edits = append(edits, c.text)
+		want := []string{"Pensando..", "Pensando...", "Pensando.", "Pensando.."}
+		if got := bot.edits(); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("edits = %v, want %v", got, want)
 		}
-	}
-	want := []string{"Pensando..", "Pensando...", "Pensando."}
-	if len(edits) < len(want) {
-		t.Fatalf("edits = %v, want at least %v", edits, want)
-	}
-	for i, w := range want {
-		if edits[i] != w {
-			t.Fatalf("edits = %v, want prefix %v", edits, want)
+	})
+}
+
+func TestFailedFrameEditStopsLaterEdits(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		bot.setErrs(nil, errors.New("too many requests"))
+		time.Sleep(10 * thinkingFrameEvery)
+		synctest.Wait()
+		th.Stop(context.Background())
+
+		if n := bot.count("edit"); n != 1 {
+			t.Fatalf("edits = %d, want 1", n)
 		}
-	}
-	if bot.count("action") < 2 {
-		t.Fatalf("typing action not repeated: %+v", bot.snapshot())
-	}
+	})
 }
 
 func TestFinishEditsPlaceholderAndStopsAnimation(t *testing.T) {
-	shrinkIntervals(t)
-	bot := &fakeBot{}
-	th := StartThinking(context.Background(), bot, 7)
-	time.Sleep(30 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		time.Sleep(2 * thinkingFrameEvery)
 
-	reply := Reply{Text: "<b>done</b>", Rows: [][]Button{{{Text: "Ok", Data: "ok"}}}}
-	if err := th.Finish(context.Background(), reply); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
-	after := bot.snapshot()
-	last := after[len(after)-1]
-	if last.method != "edit" || last.text != reply.Text || last.parseMode != telego.ModeHTML || !last.keyboard || last.messageID != 1 {
-		t.Fatalf("last call = %+v, want HTML edit of placeholder with keyboard", last)
-	}
+		reply := Reply{Text: "<b>done</b>", Rows: [][]Button{{{Text: "Ok", Data: "ok"}}}}
+		if err := th.Finish(context.Background(), reply); err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+		after := bot.snapshot()
+		last := after[len(after)-1]
+		if last.method != "edit" || last.text != reply.Text || last.parseMode != telego.ModeHTML || !last.keyboard || last.messageID != 1 {
+			t.Fatalf("last call = %+v, want HTML edit of placeholder with keyboard", last)
+		}
 
-	time.Sleep(60 * time.Millisecond)
-	if n := len(bot.snapshot()); n != len(after) {
-		t.Fatalf("calls after Finish: %d -> %d", len(after), n)
-	}
+		time.Sleep(10 * thinkingFrameEvery)
+		synctest.Wait()
+		if n := len(bot.snapshot()); n != len(after) {
+			t.Fatalf("calls after Finish: %d -> %d", len(after), n)
+		}
+	})
 }
 
 func TestFinishLongReplySendsRemainingChunks(t *testing.T) {
-	bot := &fakeBot{}
-	th := StartThinking(context.Background(), bot, 7)
-	reply := Reply{Text: strings.Repeat("a ", MaxLen), Rows: [][]Button{{{Text: "Ok", Data: "ok"}}}}
-	if err := th.Finish(context.Background(), reply); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
-
-	chunks := Split(reply.Text)
-	calls := bot.snapshot()[2:]
-	if len(chunks) < 2 || len(calls) != len(chunks) {
-		t.Fatalf("calls = %d, chunks = %d", len(calls), len(chunks))
-	}
-	if calls[0].method != "edit" || calls[0].text != chunks[0] || calls[0].keyboard {
-		t.Fatalf("first = %+v, want keyboard-less edit of first chunk", calls[0])
-	}
-	for i, c := range calls[1:] {
-		wantKB := i == len(calls)-2
-		if c.method != "send" || c.text != chunks[i+1] || c.parseMode != telego.ModeHTML || c.keyboard != wantKB {
-			t.Fatalf("chunk %d = %+v", i+1, c)
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		reply := Reply{Text: strings.Repeat("a ", MaxLen), Rows: [][]Button{{{Text: "Ok", Data: "ok"}}}}
+		if err := th.Finish(context.Background(), reply); err != nil {
+			t.Fatalf("Finish: %v", err)
 		}
-	}
+
+		chunks := Split(reply.Text)
+		calls := bot.snapshot()[1:]
+		if len(chunks) < 2 || len(calls) != len(chunks) {
+			t.Fatalf("calls = %d, chunks = %d", len(calls), len(chunks))
+		}
+		if calls[0].method != "edit" || calls[0].text != chunks[0] || calls[0].keyboard {
+			t.Fatalf("first = %+v, want keyboard-less edit of first chunk", calls[0])
+		}
+		for i, c := range calls[1:] {
+			wantKB := i == len(calls)-2
+			if c.method != "send" || c.text != chunks[i+1] || c.parseMode != telego.ModeHTML || c.keyboard != wantKB {
+				t.Fatalf("chunk %d = %+v", i+1, c)
+			}
+		}
+	})
 }
 
 func TestFinishFallsBackWhenEditFails(t *testing.T) {
-	bot := &fakeBot{editErr: errors.New("message to edit not found")}
-	th := StartThinking(context.Background(), bot, 7)
-	if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
-	calls := bot.snapshot()
-	n := len(calls)
-	if calls[n-2].method != "delete" || calls[n-2].messageID != 1 {
-		t.Fatalf("calls = %+v, want placeholder deleted", calls)
-	}
-	if calls[n-1].method != "send" || calls[n-1].text != "hi" {
-		t.Fatalf("calls = %+v, want reply sent", calls)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		bot.setErrs(nil, errors.New("message to edit not found"))
+		if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+		calls := bot.snapshot()
+		n := len(calls)
+		if calls[n-2].method != "delete" || calls[n-2].messageID != 1 {
+			t.Fatalf("calls = %+v, want placeholder deleted", calls)
+		}
+		if calls[n-1].method != "send" || calls[n-1].text != "hi" {
+			t.Fatalf("calls = %+v, want reply sent", calls)
+		}
+	})
 }
 
 func TestFinishSendsNormallyWhenPlaceholderFailed(t *testing.T) {
-	bot := &fakeBot{sendErr: errors.New("boom")}
-	th := StartThinking(context.Background(), bot, 7)
-	bot.mu.Lock()
-	bot.sendErr = nil
-	bot.mu.Unlock()
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{sendErr: errors.New("boom")}
+		th := StartThinking(context.Background(), bot, 7)
+		bot.setErrs(nil, nil)
 
-	if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
-	calls := bot.snapshot()
-	last := calls[len(calls)-1]
-	if last.method != "send" || last.text != "hi" || bot.count("edit") != 0 {
-		t.Fatalf("calls = %+v, want plain send", calls)
-	}
+		if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+		calls := bot.snapshot()
+		last := calls[len(calls)-1]
+		if last.method != "send" || last.text != "hi" || bot.count("edit") != 0 {
+			t.Fatalf("calls = %+v, want plain send", calls)
+		}
+	})
 }
 
 func TestFinishReturnsDeliveryError(t *testing.T) {
-	bot := &fakeBot{editErr: errors.New("gone")}
-	th := StartThinking(context.Background(), bot, 7)
-	bot.mu.Lock()
-	bot.sendErr = errors.New("down")
-	bot.mu.Unlock()
-	if err := th.Finish(context.Background(), Reply{Text: "hi"}); err == nil {
-		t.Fatal("want delivery error")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		bot.setErrs(errors.New("down"), errors.New("gone"))
+		if err := th.Finish(context.Background(), Reply{Text: "hi"}); err == nil {
+			t.Fatal("want delivery error")
+		}
+	})
 }
 
 func TestStopDeletesPlaceholderOnce(t *testing.T) {
-	bot := &fakeBot{}
-	th := StartThinking(context.Background(), bot, 7)
-	th.Stop(context.Background())
-	th.Stop(context.Background())
-	if n := bot.count("delete"); n != 1 {
-		t.Fatalf("deletes = %d, want 1", n)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		th.Stop(context.Background())
+		th.Stop(context.Background())
+		if n := bot.count("delete"); n != 1 {
+			t.Fatalf("deletes = %d, want 1", n)
+		}
+	})
 }
 
 func TestStopAfterFinishIsNoop(t *testing.T) {
-	bot := &fakeBot{}
-	th := StartThinking(context.Background(), bot, 7)
-	if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
-	before := len(bot.snapshot())
-	th.Stop(context.Background())
-	if n := len(bot.snapshot()); n != before {
-		t.Fatalf("Stop after Finish made calls: %+v", bot.snapshot()[before:])
-	}
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+		before := len(bot.snapshot())
+		th.Stop(context.Background())
+		if n := len(bot.snapshot()); n != before {
+			t.Fatalf("Stop after Finish made calls: %+v", bot.snapshot()[before:])
+		}
+	})
+}
+
+func TestFinishAfterStopSendsNewMessages(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		th := StartThinking(context.Background(), bot, 7)
+		th.Stop(context.Background())
+		if err := th.Finish(context.Background(), Reply{Text: "hi"}); err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+		calls := bot.snapshot()
+		last := calls[len(calls)-1]
+		if last.method != "send" || last.text != "hi" || last.parseMode != telego.ModeHTML || bot.count("edit") != 0 {
+			t.Fatalf("calls = %+v, want reply sent as a new message", calls)
+		}
+	})
 }
 
 func TestContextCancelStopsAnimation(t *testing.T) {
-	shrinkIntervals(t)
-	bot := &fakeBot{}
-	ctx, cancel := context.WithCancel(context.Background())
-	th := StartThinking(ctx, bot, 7)
-	cancel()
-	<-th.done
+	synctest.Test(t, func(t *testing.T) {
+		bot := &fakeBot{}
+		ctx, cancel := context.WithCancel(context.Background())
+		th := StartThinking(ctx, bot, 7)
+		cancel()
+		<-th.done
 
-	before := len(bot.snapshot())
-	time.Sleep(60 * time.Millisecond)
-	if n := len(bot.snapshot()); n != before {
-		t.Fatalf("animation kept running after cancel: %d -> %d", before, n)
-	}
+		before := len(bot.snapshot())
+		time.Sleep(10 * thinkingFrameEvery)
+		synctest.Wait()
+		if n := len(bot.snapshot()); n != before {
+			t.Fatalf("animation kept running after cancel: %d -> %d", before, n)
+		}
+	})
 }
