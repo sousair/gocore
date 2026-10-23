@@ -1,6 +1,9 @@
 package typesafe
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // QuestionType selects how System One answers a question.
 type QuestionType string
@@ -56,11 +59,8 @@ func (a Answer) Ranked() []Ranked {
 	for option, p := range a.Probabilities {
 		out = append(out, Ranked{Option: option, Probability: p})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Probability != out[j].Probability {
-			return out[i].Probability > out[j].Probability
-		}
-		return out[i].Option < out[j].Option
+	slices.SortFunc(out, func(a, b Ranked) int {
+		return cmp.Or(cmp.Compare(b.Probability, a.Probability), cmp.Compare(a.Option, b.Option))
 	})
 	return out
 }

@@ -6,7 +6,7 @@ package telemetry
 // redirect stub.
 const (
 	AttrGenAIOperationName = "gen_ai.operation.name" // "chat" | "embeddings" | "transcription" | "execute_tool"
-	AttrGenAIProviderName  = "gen_ai.provider.name"  // "openrouter" | "whispercpp" | "tei"
+	AttrGenAIProviderName  = "gen_ai.provider.name"  // "openrouter" | "whispercpp" | "tei" | "typesafe"
 	AttrGenAIRequestModel  = "gen_ai.request.model"
 	AttrGenAIResponseModel = "gen_ai.response.model"
 	AttrGenAIInputTokens   = "gen_ai.usage.input_tokens"
