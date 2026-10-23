@@ -1,0 +1,80 @@
+package typesafe
+
+import "sort"
+
+// QuestionType selects how System One answers a question.
+type QuestionType string
+
+const (
+	QuestionChoice QuestionType = "choice"
+	QuestionNoul   QuestionType = "noul"
+	QuestionScore  QuestionType = "score"
+)
+
+// Question is one entry of a System One request, keyed by id in the map
+// passed to Client.SystemOne.
+type Question struct {
+	Type         QuestionType `json:"type"`
+	Instructions any          `json:"instructions"`
+	Criteria     any          `json:"criteria,omitempty"`
+}
+
+// Choice asks for one of the options named by criteria's keys.
+func Choice(instructions any, criteria map[string]any) Question {
+	return Question{Type: QuestionChoice, Instructions: instructions, Criteria: criteria}
+}
+
+// Noul asks for the probability that instructions hold (yes/no).
+func Noul(instructions any) Question {
+	return Question{Type: QuestionNoul, Instructions: instructions}
+}
+
+// Score asks for a rating on the given ordered levels.
+func Score(instructions any, levels []any) Question {
+	return Question{Type: QuestionScore, Instructions: instructions, Criteria: levels}
+}
+
+// Answer is the model's reply to one question; only the fields for its Type
+// are populated.
+type Answer struct {
+	Type          QuestionType       `json:"type"`
+	Choice        string             `json:"choice"`
+	Confidence    float64            `json:"confidence"`
+	Probabilities map[string]float64 `json:"probabilities"`
+	Noul          float64            `json:"noul"`
+	Score         float64            `json:"score"`
+}
+
+// Ranked is one option with its probability.
+type Ranked struct {
+	Option      string
+	Probability float64
+}
+
+// Ranked returns the options by descending probability, ties broken by name.
+func (a Answer) Ranked() []Ranked {
+	out := make([]Ranked, 0, len(a.Probabilities))
+	for option, p := range a.Probabilities {
+		out = append(out, Ranked{Option: option, Probability: p})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Probability != out[j].Probability {
+			return out[i].Probability > out[j].Probability
+		}
+		return out[i].Option < out[j].Option
+	})
+	return out
+}
+
+// Usage is the token accounting of one call.
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// Response is the decoded System One reply.
+type Response struct {
+	Model   string            `json:"model"`
+	Answers map[string]Answer `json:"answers"`
+	Usage   Usage             `json:"usage"`
+}
