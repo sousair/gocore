@@ -11,7 +11,7 @@ const (
 	AttrGenAIResponseModel = "gen_ai.response.model"
 	AttrGenAIInputTokens   = "gen_ai.usage.input_tokens"
 	AttrGenAIOutputTokens  = "gen_ai.usage.output_tokens"
-	AttrGenAICostUSD       = "gen_ai.usage.cost_usd" // reserved: client lib doesn't expose OpenRouter cost yet
+	AttrGenAICostUSD       = "gen_ai.usage.cost_usd" // set by the typesafe client; other providers do not expose cost yet
 
 	AttrGenAIToolName        = "gen_ai.tool.name"
 	AttrGenAIToolCallID      = "gen_ai.tool.call.id"

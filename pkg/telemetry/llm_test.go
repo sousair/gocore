@@ -184,3 +184,50 @@ func TestLLMSpanOmitsUnsetReasoningAttributes(t *testing.T) {
 		}
 	}
 }
+
+func TestLLMSpanEmitsCost(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	ctx, root := tp.Tracer("t").Start(context.Background(), "root")
+
+	_, priced := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{Operation: "chat", Provider: "typesafe"})
+	priced.End(telemetry.LLMResult{CostUSD: 0.5}, nil)
+	_, free := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{Operation: "chat", Provider: "typesafe"})
+	free.End(telemetry.LLMResult{}, nil)
+	root.End()
+
+	has := func(i int) (any, bool) {
+		for _, kv := range rec.Ended()[i].Attributes() {
+			if string(kv.Key) == telemetry.AttrGenAICostUSD {
+				return kv.Value.AsInterface(), true
+			}
+		}
+		return nil, false
+	}
+	if v, ok := has(0); !ok || v != 0.5 {
+		t.Errorf("cost = %v (set=%v), want 0.5", v, ok)
+	}
+	if _, ok := has(1); ok {
+		t.Error("cost attribute set for zero cost")
+	}
+
+	logged := func(cost float64) map[string]any {
+		buf := &bytes.Buffer{}
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+		defer slog.SetDefault(prev)
+		_, ls := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{Operation: "chat", Provider: "typesafe"})
+		ls.End(telemetry.LLMResult{CostUSD: cost}, nil)
+		var rec map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {
+			t.Fatalf("log not json: %q", buf.String())
+		}
+		return rec
+	}
+	if _, ok := logged(0)["cost_usd"]; ok {
+		t.Error("cost_usd logged for zero cost")
+	}
+	if got := logged(0.5)["cost_usd"]; got != 0.5 {
+		t.Errorf("logged cost_usd = %v, want 0.5", got)
+	}
+}
