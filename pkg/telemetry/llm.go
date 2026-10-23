@@ -97,18 +97,24 @@ func (s *LLMSpan) End(res LLMResult, err error) {
 			slog.String("operation", s.info.Operation), slog.String("provider", s.info.Provider),
 			slog.String("request_model", s.info.RequestModel), slog.Int64("duration_ms", dur.Milliseconds()))
 	} else {
-		slog.InfoContext(s.ctx,
-			fmt.Sprintf("genai.call %s %s %s %d/%dtok %s",
-				s.info.Operation, s.info.Provider, res.ResponseModel,
-				res.InputTokens, res.OutputTokens, dur.Round(time.Millisecond)),
+		fields := []any{
 			"event", "genai.call",
 			"operation", s.info.Operation, "provider", s.info.Provider,
 			"request_model", s.info.RequestModel, "response_model", res.ResponseModel,
 			"input_tokens", res.InputTokens, "output_tokens", res.OutputTokens,
 			"reasoning_tokens", res.ReasoningTokens, "finish_reason", res.FinishReason,
 			"cached_input_tokens", res.CachedInputTokens, "cache_write_tokens", res.CacheWriteTokens,
-			"flow_name", s.info.FlowName, "cost_usd", res.CostUSD,
-			"duration_ms", dur.Milliseconds())
+			"flow_name", s.info.FlowName,
+			"duration_ms", dur.Milliseconds(),
+		}
+		if res.CostUSD > 0 {
+			fields = append(fields, "cost_usd", res.CostUSD)
+		}
+		slog.InfoContext(s.ctx,
+			fmt.Sprintf("genai.call %s %s %s %d/%dtok %s",
+				s.info.Operation, s.info.Provider, res.ResponseModel,
+				res.InputTokens, res.OutputTokens, dur.Round(time.Millisecond)),
+			fields...)
 	}
 	s.span.End()
 }
