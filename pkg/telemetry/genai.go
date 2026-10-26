@@ -6,12 +6,12 @@ package telemetry
 // redirect stub.
 const (
 	AttrGenAIOperationName = "gen_ai.operation.name" // "chat" | "embeddings" | "transcription" | "execute_tool"
-	AttrGenAIProviderName  = "gen_ai.provider.name"  // "openrouter" | "whispercpp" | "tei"
+	AttrGenAIProviderName  = "gen_ai.provider.name"  // "openrouter" | "whispercpp" | "tei" | "typesafe"
 	AttrGenAIRequestModel  = "gen_ai.request.model"
 	AttrGenAIResponseModel = "gen_ai.response.model"
 	AttrGenAIInputTokens   = "gen_ai.usage.input_tokens"
 	AttrGenAIOutputTokens  = "gen_ai.usage.output_tokens"
-	AttrGenAICostUSD       = "gen_ai.usage.cost_usd" // reserved: client lib doesn't expose OpenRouter cost yet
+	AttrGenAICostUSD       = "gen_ai.usage.cost_usd" // set by the typesafe client; other providers do not expose cost yet
 
 	AttrGenAIToolName        = "gen_ai.tool.name"
 	AttrGenAIToolCallID      = "gen_ai.tool.call.id"
