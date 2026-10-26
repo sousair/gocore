@@ -17,6 +17,8 @@
 //     SendLong (splits across messages for model-authored text, since Clamp
 //     silently discards the tail). Both route through htmlMessage, the single
 //     site where telego.ModeHTML is set.
+//   - Slow replies: StartThinking shows an animated "Pensando..." placeholder;
+//     Finish turns it into the reply, Stop removes it.
 //
 // Telegram HTML mode supports only <b> <i> <u> <s> <code> <pre> <a>
 // <blockquote>. HTML() emits only these and degrades everything else to text.
