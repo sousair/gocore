@@ -1,6 +1,7 @@
 // Package typesafe is a client for TypeSafe AI's System One API, which
 // answers choice, yes/no and score questions about a state with calibrated
-// probabilities.
+// probabilities. The same contract is served by OpenRouter's decisions
+// endpoint (OpenRouterEndpoint, OpenRouterModel).
 package typesafe
 
 import (
@@ -19,9 +20,12 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.typesafe.ai"
-	maxAttempts    = 3
-	maxRetryWait   = 5 * time.Second
+	TypeSafeEndpoint   = "https://api.typesafe.ai/v1/systemone"
+	OpenRouterEndpoint = "https://openrouter.ai/api/alpha/decisions"
+	OpenRouterModel    = "typesafe/jev-1.13"
+
+	maxAttempts  = 3
+	maxRetryWait = 5 * time.Second
 	// inputUSDPerToken is $0.042 per million input tokens; output is free.
 	inputUSDPerToken = 0.042e-6
 )
@@ -32,25 +36,36 @@ var (
 	errServer      = errors.New("typesafe: server error")
 )
 
-// Dependencies configures a Client. BaseURL and HTTPClient default when empty.
+// Dependencies configures a Client. Endpoint defaults to TypeSafeEndpoint and
+// HTTPClient to a 10s-timeout client. Provider is OpenRouter's routing object
+// (e.g. {"data_collection":"deny","zdr":true}), sent only when non-nil.
 type Dependencies struct {
 	APIKey     string
 	Model      string
-	BaseURL    string
+	Endpoint   string
+	Provider   map[string]any
 	HTTPClient *http.Client
 }
 
 type Client struct {
-	apiKey  string
-	model   string
-	baseURL string
-	http    *http.Client
+	apiKey       string
+	model        string
+	endpoint     string
+	provider     map[string]any
+	providerName string
+	http         *http.Client
 }
 
 func New(deps *Dependencies) *Client {
-	c := &Client{apiKey: deps.APIKey, model: deps.Model, baseURL: deps.BaseURL, http: deps.HTTPClient}
-	if c.baseURL == "" {
-		c.baseURL = defaultBaseURL
+	c := &Client{
+		apiKey: deps.APIKey, model: deps.Model, endpoint: deps.Endpoint,
+		provider: deps.Provider, providerName: "typesafe", http: deps.HTTPClient,
+	}
+	if c.endpoint == "" {
+		c.endpoint = TypeSafeEndpoint
+	}
+	if c.endpoint == OpenRouterEndpoint {
+		c.providerName = "openrouter"
 	}
 	if c.http == nil {
 		c.http = &http.Client{Timeout: 10 * time.Second}
@@ -62,17 +77,18 @@ type request struct {
 	Model     string              `json:"model"`
 	State     any                 `json:"state"`
 	Questions map[string]Question `json:"questions"`
+	Provider  map[string]any      `json:"provider,omitempty"`
 }
 
 // SystemOne asks every question about state in one call. 429s are retried
-// honoring retry-after; a 5xx is retried once.
+// honoring retry-after; a 5xx (including OpenRouter's 529) is retried once.
 func (c *Client) SystemOne(ctx context.Context, state any, questions map[string]Question) (Response, error) {
 	ctx, span := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
-		Operation: "chat", Provider: "typesafe", RequestModel: c.model,
+		Operation: "chat", Provider: c.providerName, RequestModel: c.model,
 	})
 	res, err := c.call(ctx, state, questions)
 	span.End(telemetry.LLMResult{
-		CostUSD:       float64(res.Usage.InputTokens) * inputUSDPerToken,
+		CostUSD:       res.Usage.costUSD(),
 		ResponseModel: res.Model,
 		InputTokens:   res.Usage.InputTokens,
 		OutputTokens:  res.Usage.OutputTokens,
@@ -81,7 +97,7 @@ func (c *Client) SystemOne(ctx context.Context, state any, questions map[string]
 }
 
 func (c *Client) call(ctx context.Context, state any, questions map[string]Question) (Response, error) {
-	body, err := json.Marshal(request{Model: c.model, State: state, Questions: questions})
+	body, err := json.Marshal(request{Model: c.model, State: state, Questions: questions, Provider: c.provider})
 	if err != nil {
 		return Response{}, fmt.Errorf("typesafe: marshal: %w", err)
 	}
@@ -107,7 +123,7 @@ func (c *Client) call(ctx context.Context, state any, questions map[string]Quest
 
 // post performs one attempt, returning how long to wait if it is retryable.
 func (c *Client) post(ctx context.Context, body []byte) (Response, time.Duration, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/systemone", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return Response{}, 0, fmt.Errorf("typesafe: request: %w", err)
 	}
@@ -140,9 +156,18 @@ func (c *Client) post(ctx context.Context, body []byte) (Response, time.Duration
 	return Response{}, 0, fmt.Errorf("typesafe: status %d: %s", res.StatusCode, errorSnippet(res.Body))
 }
 
+// errorSnippet prefers OpenRouter's {"error":{"message"}} over the raw body.
 func errorSnippet(r io.Reader) string {
-	b, _ := io.ReadAll(io.LimitReader(r, 512))
-	return strings.TrimSpace(string(b))
+	b, _ := io.ReadAll(io.LimitReader(r, 4<<10))
+	var out struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(b, &out) == nil && out.Error.Message != "" {
+		return out.Error.Message
+	}
+	return strings.TrimSpace(string(b[:min(len(b), 512)]))
 }
 
 func retryAfter(h string) time.Duration {

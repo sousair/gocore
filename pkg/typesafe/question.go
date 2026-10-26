@@ -68,6 +68,15 @@ func (a Answer) Ranked() []Ranked {
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// Cost is the USD price OpenRouter reports; TypeSafe leaves it zero.
+	Cost float64 `json:"cost"`
+}
+
+func (u Usage) costUSD() float64 {
+	if u.Cost > 0 {
+		return u.Cost
+	}
+	return float64(u.InputTokens) * inputUSDPerToken
 }
 
 type Response struct {

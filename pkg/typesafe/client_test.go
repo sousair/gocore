@@ -21,7 +21,7 @@ func newTestClient(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return New(&Dependencies{APIKey: "k", Model: "jev-1.13.0", BaseURL: srv.URL})
+	return New(&Dependencies{APIKey: "k", Model: "jev-1.13.0", Endpoint: srv.URL + "/v1/systemone"})
 }
 
 func questions() map[string]Question {
