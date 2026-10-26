@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -37,21 +38,37 @@ var (
 )
 
 // Dependencies configures a Client. Endpoint defaults to TypeSafeEndpoint and
-// HTTPClient to a 10s-timeout client. Provider is OpenRouter's routing object
-// (e.g. {"data_collection":"deny","zdr":true}), sent only when non-nil.
+// HTTPClient to a 10s-timeout client. Provider is sent only when non-nil.
 type Dependencies struct {
 	APIKey     string
 	Model      string
 	Endpoint   string
-	Provider   map[string]any
+	Provider   *Provider
 	HTTPClient *http.Client
+}
+
+// DataCollection is OpenRouter's policy on providers that may store or train
+// on request data.
+type DataCollection string
+
+const (
+	DataCollectionAllow DataCollection = "allow"
+	DataCollectionDeny  DataCollection = "deny"
+)
+
+// Provider is OpenRouter's provider-routing preferences; zero fields are omitted.
+type Provider struct {
+	DataCollection DataCollection `json:"data_collection,omitempty"`
+	ZDR            bool           `json:"zdr,omitempty"`
+	Only           []string       `json:"only,omitempty"`
+	Order          []string       `json:"order,omitempty"`
 }
 
 type Client struct {
 	apiKey       string
 	model        string
 	endpoint     string
-	provider     map[string]any
+	provider     *Provider
 	providerName string
 	http         *http.Client
 }
@@ -64,7 +81,7 @@ func New(deps *Dependencies) *Client {
 	if c.endpoint == "" {
 		c.endpoint = TypeSafeEndpoint
 	}
-	if c.endpoint == OpenRouterEndpoint {
+	if u, err := url.Parse(c.endpoint); err == nil && u.Hostname() == "openrouter.ai" {
 		c.providerName = "openrouter"
 	}
 	if c.http == nil {
@@ -77,7 +94,7 @@ type request struct {
 	Model     string              `json:"model"`
 	State     any                 `json:"state"`
 	Questions map[string]Question `json:"questions"`
-	Provider  map[string]any      `json:"provider,omitempty"`
+	Provider  *Provider           `json:"provider,omitempty"`
 }
 
 // SystemOne asks every question about state in one call. 429s are retried

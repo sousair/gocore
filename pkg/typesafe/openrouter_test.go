@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,7 +27,7 @@ func TestSystemOne_openRouterRequest(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := New(&Dependencies{
 		APIKey: "k", Model: OpenRouterModel, Endpoint: srv.URL + "/api/alpha/decisions",
-		Provider: map[string]any{"data_collection": "deny", "zdr": true},
+		Provider: &Provider{DataCollection: DataCollectionDeny, ZDR: true},
 	})
 
 	if _, err := c.SystemOne(context.Background(), nil, questions()); err != nil {
@@ -59,6 +60,7 @@ func TestSystemOne_spanCostAndProvider(t *testing.T) {
 		cost                            float64
 	}{
 		{"reported cost wins", `{"input_tokens":120,"output_tokens":0,"cost":0.25}`, OpenRouterEndpoint, "openrouter", 0.25},
+		{"openrouter host matched, not the exact URL", `{"input_tokens":0,"output_tokens":0,"cost":0.1}`, OpenRouterEndpoint + "/", "openrouter", 0.1},
 		{"token price fallback", `{"input_tokens":1000000,"output_tokens":0}`, "", "typesafe", 0.042},
 	}
 	for _, tc := range cases {
@@ -67,8 +69,7 @@ func TestSystemOne_spanCostAndProvider(t *testing.T) {
 				_, _ = w.Write([]byte(`{"model":"m","answers":{},"usage":` + tc.usage + `}`))
 			}))
 			t.Cleanup(srv.Close)
-			c := New(&Dependencies{APIKey: "k", Model: "m", Endpoint: tc.endpoint})
-			c.endpoint = srv.URL // keep the provider derived from the configured endpoint
+			c := New(&Dependencies{APIKey: "k", Model: "m", Endpoint: tc.endpoint, HTTPClient: redirectTo(t, srv.URL)})
 
 			rec := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
@@ -113,4 +114,21 @@ func TestSystemOne_openRouterErrorMessage(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "status 402: Insufficient credits") {
 		t.Fatalf("got %v", err)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// redirectTo sends every request to the test server whatever host it names.
+func redirectTo(t *testing.T, serverURL string) *http.Client {
+	t.Helper()
+	target, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
+		return http.DefaultTransport.RoundTrip(r)
+	})}
 }
