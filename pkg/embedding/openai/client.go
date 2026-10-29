@@ -56,7 +56,6 @@ type embedRequest struct {
 type embedResponse struct {
 	Model string `json:"model"`
 	Data  []struct {
-		Index     int       `json:"index"`
 		Embedding []float32 `json:"embedding"`
 	} `json:"data"`
 	Usage struct {
@@ -66,29 +65,22 @@ type embedResponse struct {
 
 // Embed returns a Dims-length embedding for text.
 func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
-	vecs, err := c.EmbedBatch(ctx, []string{text})
-	if err != nil {
-		return nil, err
-	}
-	return vecs[0], nil
-}
-
-// EmbedBatch embeds texts in one call and returns their vectors in input order.
-func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	ctx, span := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
 		Operation: "embeddings", Provider: providerName, RequestModel: c.model,
 	})
-	out, err := c.call(ctx, texts)
-	var vecs [][]float32
-	if err == nil {
-		vecs, err = byIndex(out, len(texts))
+	out, err := c.call(ctx, text)
+	if err == nil && (len(out.Data) != 1 || len(out.Data[0].Embedding) != Dims) {
+		err = fmt.Errorf("openai: want 1x%d vector, got %dx%d", Dims, len(out.Data), dimsOf(out))
 	}
 	span.End(telemetry.LLMResult{ResponseModel: out.Model, InputTokens: out.Usage.PromptTokens}, err)
-	return vecs, err
+	if err != nil {
+		return nil, err
+	}
+	return out.Data[0].Embedding, nil
 }
 
-func (c *Client) call(ctx context.Context, texts []string) (embedResponse, error) {
-	body, err := json.Marshal(embedRequest{Model: c.model, Input: texts})
+func (c *Client) call(ctx context.Context, text string) (embedResponse, error) {
+	body, err := json.Marshal(embedRequest{Model: c.model, Input: []string{text}})
 	if err != nil {
 		return embedResponse{}, fmt.Errorf("openai: marshal: %w", err)
 	}
@@ -117,19 +109,9 @@ func (c *Client) call(ctx context.Context, texts []string) (embedResponse, error
 	return out, nil
 }
 
-func byIndex(out embedResponse, want int) ([][]float32, error) {
-	if len(out.Data) != want {
-		return nil, fmt.Errorf("openai: want %d vectors, got %d", want, len(out.Data))
+func dimsOf(out embedResponse) int {
+	if len(out.Data) == 0 {
+		return 0
 	}
-	vecs := make([][]float32, want)
-	for _, d := range out.Data {
-		if d.Index < 0 || d.Index >= want || vecs[d.Index] != nil {
-			return nil, fmt.Errorf("openai: invalid or duplicate index %d", d.Index)
-		}
-		if len(d.Embedding) != Dims {
-			return nil, fmt.Errorf("openai: want %d dims, got %d", Dims, len(d.Embedding))
-		}
-		vecs[d.Index] = d.Embedding
-	}
-	return vecs, nil
+	return len(out.Data[0].Embedding)
 }

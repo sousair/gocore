@@ -21,7 +21,6 @@ func makeVector(dim int, seed float32) []float32 {
 }
 
 type item struct {
-	Index     int       `json:"index"`
 	Embedding []float32 `json:"embedding"`
 }
 
@@ -37,8 +36,8 @@ func respond(w http.ResponseWriter, items ...item) {
 	json.NewEncoder(w).Encode(map[string]any{"model": "bge-m3", "data": items}) //nolint:errcheck
 }
 
-func TestClient_EmbedBatch_OrdersByIndex(t *testing.T) {
-	first, second := makeVector(Dims, 1), makeVector(Dims, 2)
+func TestClient_Embed_HappyPath(t *testing.T) {
+	vec := makeVector(Dims, 0)
 	var gotPath string
 	var gotBody map[string]any
 	client := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
@@ -46,12 +45,12 @@ func TestClient_EmbedBatch_OrdersByIndex(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		respond(w, item{Index: 1, Embedding: second}, item{Index: 0, Embedding: first})
+		respond(w, item{Embedding: vec})
 	})
 
-	got, err := client.EmbedBatch(context.Background(), []string{"a", "b"})
+	got, err := client.Embed(context.Background(), "FII dividends Q1")
 	if err != nil {
-		t.Fatalf("EmbedBatch: %v", err)
+		t.Fatalf("Embed: %v", err)
 	}
 	if gotPath != "/v1/embeddings" {
 		t.Errorf("want path /v1/embeddings, got %q", gotPath)
@@ -60,23 +59,8 @@ func TestClient_EmbedBatch_OrdersByIndex(t *testing.T) {
 		t.Errorf("want model bge-m3, got %v", gotBody["model"])
 	}
 	input, ok := gotBody["input"].([]any)
-	if !ok || len(input) != 2 || input[0] != "a" || input[1] != "b" {
-		t.Errorf("want input [a b], got %v", gotBody["input"])
-	}
-	if len(got) != 2 || got[0][0] != first[0] || got[1][0] != second[0] {
-		t.Errorf("want vectors in input order, got first elements %v/%v", got[0][0], got[1][0])
-	}
-}
-
-func TestClient_Embed_HappyPath(t *testing.T) {
-	vec := makeVector(Dims, 0)
-	client := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, item{Index: 0, Embedding: vec})
-	})
-
-	got, err := client.Embed(context.Background(), "FII dividends Q1")
-	if err != nil {
-		t.Fatalf("Embed: %v", err)
+	if !ok || len(input) != 1 || input[0] != "FII dividends Q1" {
+		t.Errorf("want input [FII dividends Q1], got %v", gotBody["input"])
 	}
 	if len(got) != Dims || got[Dims-1] != vec[Dims-1] {
 		t.Error("vector mismatch")
@@ -97,7 +81,7 @@ func TestClient_Embed_AuthHeader(t *testing.T) {
 			client := newTestClient(t, tc.apiKey, func(w http.ResponseWriter, r *http.Request) {
 				gotAuth = r.Header.Get("Authorization")
 				_, hasAuth = r.Header["Authorization"]
-				respond(w, item{Index: 0, Embedding: makeVector(Dims, 0)})
+				respond(w, item{Embedding: makeVector(Dims, 0)})
 			})
 			if _, err := client.Embed(context.Background(), "x"); err != nil {
 				t.Fatalf("Embed: %v", err)
@@ -121,16 +105,13 @@ func TestClient_Embed_Errors(t *testing.T) {
 			_, _ = w.Write([]byte("{not json"))
 		}},
 		{"wrong dims", func(w http.ResponseWriter, r *http.Request) {
-			respond(w, item{Index: 0, Embedding: makeVector(512, 0)})
+			respond(w, item{Embedding: makeVector(512, 0)})
 		}},
 		{"empty data", func(w http.ResponseWriter, r *http.Request) {
 			respond(w)
 		}},
 		{"too many vectors", func(w http.ResponseWriter, r *http.Request) {
-			respond(w, item{Index: 0, Embedding: makeVector(Dims, 0)}, item{Index: 1, Embedding: makeVector(Dims, 0)})
-		}},
-		{"index out of range", func(w http.ResponseWriter, r *http.Request) {
-			respond(w, item{Index: 3, Embedding: makeVector(Dims, 0)})
+			respond(w, item{Embedding: makeVector(Dims, 0)}, item{Embedding: makeVector(Dims, 0)})
 		}},
 	}
 	for _, tc := range cases {
@@ -140,15 +121,6 @@ func TestClient_Embed_Errors(t *testing.T) {
 				t.Error("want error, got nil")
 			}
 		})
-	}
-}
-
-func TestClient_EmbedBatch_DuplicateIndex(t *testing.T) {
-	client := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, item{Index: 0, Embedding: makeVector(Dims, 0)}, item{Index: 0, Embedding: makeVector(Dims, 0)})
-	})
-	if _, err := client.EmbedBatch(context.Background(), []string{"a", "b"}); err == nil {
-		t.Error("want error for duplicate index, got nil")
 	}
 }
 
@@ -167,7 +139,7 @@ func TestClient_Embed_Telemetry(t *testing.T) {
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
 			ctx, root := tp.Tracer("t").Start(context.Background(), "root")
 			client := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-				respond(w, item{Index: 0, Embedding: makeVector(tc.dims, 0)})
+				respond(w, item{Embedding: makeVector(tc.dims, 0)})
 			})
 
 			_, _ = client.Embed(ctx, "x")
