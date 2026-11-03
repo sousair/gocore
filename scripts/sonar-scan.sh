@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opt-in SonarQube scan. The dind sidecar can't see /workspace, so sources are
+# Opt-in SonarQube scan. The Podman service can't see /workspace, so sources are
 # tar-piped into a named docker volume instead of bind-mounted. Start SonarQube
 # first: docker compose --profile sonar up -d sonarqube (in devstack).
 set -euo pipefail
