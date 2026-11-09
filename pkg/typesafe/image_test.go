@@ -168,11 +168,12 @@ func TestSystemOneImages_rejectsBeforeSending(t *testing.T) {
 		images []Image
 		want   string
 	}{
-		"unreferenced":      {map[string]any{"photo": "nothing here"}, []Image{{Ref: "ref-1", Data: ok}}, "not referenced"},
-		"ref only in a key": {map[string]any{"ref-1": "x"}, []Image{{Ref: "ref-1", Data: ok}}, "not referenced"},
-		"empty ref":         {map[string]any{"p": "x"}, []Image{{Ref: " ", Data: ok}}, "empty reference"},
-		"ref too long":      {map[string]any{"p": longRef}, []Image{{Ref: longRef, Data: ok}}, "over 1024 bytes"},
-		"refs too long":     {manyState, manyRefs, "over 64 KiB"},
+		"unreferenced":       {map[string]any{"photo": "nothing here"}, []Image{{Ref: "ref-1", Data: ok}}, "not referenced"},
+		"ref only in a key":  {map[string]any{"ref-1": "x"}, []Image{{Ref: "ref-1", Data: ok}}, "not referenced"},
+		"ref only as a type": {map[string]any{"p": "x"}, []Image{{Ref: "noul", Data: ok}}, "not referenced"},
+		"empty ref":          {map[string]any{"p": "x"}, []Image{{Ref: " ", Data: ok}}, "empty reference"},
+		"ref too long":       {map[string]any{"p": longRef}, []Image{{Ref: longRef, Data: ok}}, "over 1024 bytes"},
+		"refs too long":      {manyState, manyRefs, "over 64 KiB"},
 		"duplicate ref": {map[string]any{"p": "ref-1"},
 			[]Image{{Ref: "ref-1", Data: ok}, {Ref: "ref-1", Data: ok}}, "duplicate reference"},
 		"file over 16 MiB": {map[string]any{"p": "ref-1"}, []Image{{Ref: "ref-1", Data: padded(maxImageBytes)}}, "over 16 MiB"},

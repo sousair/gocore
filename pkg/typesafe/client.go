@@ -161,7 +161,7 @@ func (c *Client) call(ctx context.Context, state any, questions map[string]Quest
 type outgoing struct {
 	body        []byte
 	contentType string
-	images      bool
+	dangerZone  bool // images or a Box question
 }
 
 func (c *Client) encode(req request, images []Image) (outgoing, error) {
@@ -171,13 +171,13 @@ func (c *Client) encode(req request, images []Image) (outgoing, error) {
 	}
 	if len(images) > 0 {
 		body, contentType, err := imageBody(req, images, c.providerName == "openrouter")
-		return outgoing{body: body, contentType: contentType, images: true}, err
+		return outgoing{body: body, contentType: contentType, dangerZone: true}, err
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return outgoing{}, fmt.Errorf("typesafe: marshal: %w", err)
 	}
-	return outgoing{body: body, contentType: "application/json", images: boxed}, nil
+	return outgoing{body: body, contentType: "application/json", dangerZone: boxed}, nil
 }
 
 // post performs one attempt, returning how long to wait if it is retryable.
@@ -188,7 +188,7 @@ func (c *Client) post(ctx context.Context, o outgoing) (Response, time.Duration,
 	}
 	req.Header.Set("Content-Type", o.contentType)
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	if o.images {
+	if o.dangerZone {
 		req.Header.Set(DangerZoneImagesHeader, "true")
 	}
 

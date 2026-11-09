@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"strings"
 	"testing"
 )
 
@@ -142,14 +143,54 @@ func TestPrepareImage_rejects(t *testing.T) {
 func TestExifOrientation_malformed(t *testing.T) {
 	ok := jpegBytes(t, solid(10, 10, color.White))
 	truncated := withOrientation(ok, binary.BigEndian, 6)[:20]
+	exif := func(tiff []byte) []byte {
+		seg := append([]byte("Exif\x00\x00"), tiff...)
+		app1 := []byte{0xFF, 0xE1, 0, 0}
+		binary.BigEndian.PutUint16(app1[2:], uint16(len(seg)+2))
+		return append(append(append([]byte{0xFF, 0xD8}, app1...), seg...), ok[2:]...)
+	}
+	tiff := func(ifd uint32, count uint16) []byte {
+		t := []byte{'M', 'M', 0, 42, 0, 0, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(t[4:], ifd)
+		binary.BigEndian.PutUint16(t[8:], count)
+		return t
+	}
 	for name, data := range map[string][]byte{
-		"png":       pngBytes(t, solid(10, 10, color.White)),
-		"no exif":   ok,
-		"truncated": truncated,
-		"empty":     nil,
+		"png":                  pngBytes(t, solid(10, 10, color.White)),
+		"no exif":              ok,
+		"truncated":            truncated,
+		"empty":                nil,
+		"ifd past the end":     exif(tiff(4096, 1)),
+		"ifd near max":         exif(tiff(0xFFFFFFFF, 1)),
+		"huge entry count":     exif(tiff(8, 0xFFFF)),
+		"segment size under 2": {0xFF, 0xD8, 0xFF, 0xE1, 0, 1, 'E', 'x'},
 	} {
 		if got := exifOrientation(data); got != 1 {
 			t.Errorf("%s: %d", name, got)
 		}
+	}
+}
+
+func TestPrepareImage_rejectsHugeDeclaredSize(t *testing.T) {
+	data := jpegBytes(t, solid(10, 10, color.White))
+	sof := bytes.Index(data, []byte{0xFF, 0xC0})
+	if sof < 0 {
+		t.Fatal("no SOF0 marker")
+	}
+	binary.BigEndian.PutUint16(data[sof+5:], 65535) // height
+	binary.BigEndian.PutUint16(data[sof+7:], 65535) // width
+	if _, err := PrepareImage(data); !errors.Is(err, ErrInvalidImage) || !strings.Contains(err.Error(), "65535x65535") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPrepareImage_flattensTransparencyOnWhite(t *testing.T) {
+	img, err := PrepareImage(pngBytes(t, image.NewNRGBA(image.Rect(0, 0, 300, 300))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := decoded(t, img).At(150, 150).RGBA()
+	if r < 0xf000 || g < 0xf000 || b < 0xf000 {
+		t.Errorf("transparent pixel became %v, want white", decoded(t, img).At(150, 150))
 	}
 }

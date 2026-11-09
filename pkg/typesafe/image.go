@@ -159,13 +159,15 @@ func writePart(w *multipart.Writer, name, filename, contentType string, data []b
 }
 
 // checkReferenced fails when an image's Ref appears in no string value of the
-// state or questions: the API rejects unreferenced assets with a 400. Object
-// keys are skipped because the API does not replace references in keys.
+// state, instructions or criteria: the API rejects unreferenced assets with a
+// 400. Object keys are skipped because the API does not replace references in
+// keys, and question types because they are not text.
 func checkReferenced(req request, images []Image) error {
-	js, err := json.Marshal(struct {
-		State     any                 `json:"state"`
-		Questions map[string]Question `json:"questions"`
-	}{req.State, req.Questions})
+	texts := []any{req.State}
+	for _, q := range req.Questions {
+		texts = append(texts, q.Instructions, q.Criteria)
+	}
+	js, err := json.Marshal(texts)
 	if err != nil {
 		return fmt.Errorf("typesafe: marshal: %w", err)
 	}

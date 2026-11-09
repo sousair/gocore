@@ -6,22 +6,36 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"math"
 )
 
-const prepareJPEGQuality = 85
+const (
+	prepareJPEGQuality = 85
+	// maxDecodePixels caps what PrepareImage decodes: a few hundred bytes of
+	// JPEG can declare 65535x65535 and force a multi-gigabyte allocation.
+	maxDecodePixels = 50_000_000
+)
 
 // PrepareImage turns a PNG or JPEG photo into an Image the API accepts: it
 // applies the JPEG EXIF orientation (the API ignores it), scales so each side
 // lies within 280-1568 px keeping the aspect ratio, and re-encodes as JPEG.
-// Photos more elongated than 1568:280 cannot fit and return ErrInvalidImage.
+// Transparent pixels become white. Photos more elongated than 1568:280, or
+// over 50 megapixels, return ErrInvalidImage.
 func PrepareImage(data []byte) (Image, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return Image{}, fmt.Errorf("%w: decode: %w", ErrInvalidImage, err)
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels { // int64: the product overflows int on 32-bit
+		return Image{}, fmt.Errorf("%w: %dx%d is over %d pixels", ErrInvalidImage, cfg.Width, cfg.Height, maxDecodePixels)
+	}
 	src, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return Image{}, fmt.Errorf("%w: decode: %w", ErrInvalidImage, err)
 	}
-	oriented := orient(src, exifOrientation(data))
+	oriented := orient(onWhite(src), exifOrientation(data))
 	b := oriented.Bounds()
 	w, h, err := fitSize(b.Dx(), b.Dy())
 	if err != nil {
@@ -32,6 +46,18 @@ func PrepareImage(data []byte) (Image, error) {
 		return Image{}, fmt.Errorf("typesafe: encode jpeg: %w", err)
 	}
 	return NewImage(buf.Bytes()), nil
+}
+
+// onWhite flattens images with an alpha channel onto white; JPEG has none and
+// would otherwise turn transparent pixels black.
+func onWhite(src image.Image) image.Image {
+	if o, ok := src.(interface{ Opaque() bool }); ok && o.Opaque() {
+		return src
+	}
+	dst := image.NewRGBA(src.Bounds())
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), src, src.Bounds().Min, draw.Over)
+	return dst
 }
 
 // fitSize returns the size, aspect ratio kept, that puts both sides within the
@@ -155,7 +181,7 @@ func tiffOrientation(t []byte) int {
 		return 1
 	}
 	ifd := int(order.Uint32(t[4:]))
-	if ifd < 8 || ifd+2 > len(t) {
+	if ifd < 8 || ifd > len(t)-2 { // subtraction side: ifd+2 can overflow int on 32-bit
 		return 1
 	}
 	count := int(order.Uint16(t[ifd:]))
