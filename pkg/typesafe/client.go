@@ -1,7 +1,8 @@
 // Package typesafe is a client for TypeSafe AI's System One API, which
-// answers choice, yes/no and score questions about a state with calibrated
-// probabilities. The same contract is served by OpenRouter's decisions
-// endpoint (OpenRouterEndpoint, OpenRouterModel).
+// answers choice, yes/no, score and box questions about a state with
+// calibrated probabilities. The text contract is also served by OpenRouter's
+// decisions endpoint (OpenRouterEndpoint, OpenRouterModel). Images and Box
+// are preview features (SystemOneImages); Box needs Jev 1.14.
 package typesafe
 
 import (
@@ -24,6 +25,14 @@ const (
 	TypeSafeEndpoint   = "https://api.typesafe.ai/v1/systemone"
 	OpenRouterEndpoint = "https://openrouter.ai/api/alpha/decisions"
 	OpenRouterModel    = "typesafe/jev-1.13"
+	// OpenRouterModelJev114 adds the Box question type on OpenRouter.
+	OpenRouterModelJev114 = "typesafe/jev-1.14"
+
+	// Versioned model ids. Pin one of these rather than an alias such as
+	// jev-latest, so answers and tuned thresholds do not shift on a release.
+	ModelJev113 = "jev-1.13.0"
+	// ModelJev114 adds the Box question type.
+	ModelJev114 = "jev-1.14.0"
 
 	maxAttempts  = 3
 	maxRetryWait = 5 * time.Second
@@ -94,16 +103,26 @@ type request struct {
 	Model     string              `json:"model"`
 	State     any                 `json:"state"`
 	Questions map[string]Question `json:"questions"`
+	Assets    map[string]asset    `json:"assets,omitempty"`
 	Provider  *Provider           `json:"provider,omitempty"`
 }
 
 // SystemOne asks every question about state in one call. 429s are retried
 // honoring retry-after; a 5xx (including OpenRouter's 529) is retried once.
 func (c *Client) SystemOne(ctx context.Context, state any, questions map[string]Question) (Response, error) {
+	return c.SystemOneImages(ctx, state, questions)
+}
+
+// SystemOneImages is SystemOne with image assets. With images it sends a
+// multipart request, or JSON with base64 assets to OpenRouter, which rejects
+// multipart; with images or a Box question it sets
+// DangerZoneImagesHeader. Images are checked against the API limits before
+// sending (ErrInvalidImage); PrepareImage brings a photo within them.
+func (c *Client) SystemOneImages(ctx context.Context, state any, questions map[string]Question, images ...Image) (Response, error) {
 	ctx, span := telemetry.StartLLMCall(ctx, telemetry.LLMCallInfo{
 		Operation: "chat", Provider: c.providerName, RequestModel: c.model,
 	})
-	res, err := c.call(ctx, state, questions)
+	res, err := c.call(ctx, state, questions, images)
 	span.End(telemetry.LLMResult{
 		CostUSD:       res.Usage.costUSD(),
 		ResponseModel: res.Model,
@@ -113,14 +132,14 @@ func (c *Client) SystemOne(ctx context.Context, state any, questions map[string]
 	return res, err
 }
 
-func (c *Client) call(ctx context.Context, state any, questions map[string]Question) (Response, error) {
-	body, err := json.Marshal(request{Model: c.model, State: state, Questions: questions, Provider: c.provider})
+func (c *Client) call(ctx context.Context, state any, questions map[string]Question, images []Image) (Response, error) {
+	o, err := c.encode(request{Model: c.model, State: state, Questions: questions, Provider: c.provider}, images)
 	if err != nil {
-		return Response{}, fmt.Errorf("typesafe: marshal: %w", err)
+		return Response{}, err
 	}
 	serverRetried := false
 	for attempt := 1; ; attempt++ {
-		res, wait, err := c.post(ctx, body)
+		res, wait, err := c.post(ctx, o)
 		switch {
 		case err == nil:
 			return res, nil
@@ -138,14 +157,40 @@ func (c *Client) call(ctx context.Context, state any, questions map[string]Quest
 	}
 }
 
+// outgoing is an encoded request body, reused across retries.
+type outgoing struct {
+	body        []byte
+	contentType string
+	images      bool
+}
+
+func (c *Client) encode(req request, images []Image) (outgoing, error) {
+	boxed := false
+	for _, q := range req.Questions {
+		boxed = boxed || q.Type == QuestionBox
+	}
+	if len(images) > 0 {
+		body, contentType, err := imageBody(req, images, c.providerName == "openrouter")
+		return outgoing{body: body, contentType: contentType, images: true}, err
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return outgoing{}, fmt.Errorf("typesafe: marshal: %w", err)
+	}
+	return outgoing{body: body, contentType: "application/json", images: boxed}, nil
+}
+
 // post performs one attempt, returning how long to wait if it is retryable.
-func (c *Client) post(ctx context.Context, body []byte) (Response, time.Duration, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+func (c *Client) post(ctx context.Context, o outgoing) (Response, time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(o.body))
 	if err != nil {
 		return Response{}, 0, fmt.Errorf("typesafe: request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", o.contentType)
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if o.images {
+		req.Header.Set(DangerZoneImagesHeader, "true")
+	}
 
 	res, err := c.http.Do(req)
 	if err != nil {
