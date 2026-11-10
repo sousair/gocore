@@ -1,0 +1,14 @@
+# Called vulnerabilities that `make vuln` and the pre-push hook accept, read by
+# scripts/vulngate. Format: <GO-ID> <expires YYYY-MM-DD, UTC, inclusive> <reason>.
+# An unlisted called finding fails the gate, and so does an entry past its
+# expiry: re-check the advisory, then fix, re-justify with a new date, or drop.
+
+# The v4 advisory entries carry no symbol list, so govulncheck marks every echo
+# call (Echo.GET, HTTPError.Error, init) as affected. The v5 entries name the
+# real symbols. gocore never calls Context.RealIP and never builds the
+# *echo.Echo, so it cannot set an IPExtractor; consumers must. Fixed in v5.1.0.
+GO-2026-6872 2027-01-10 Rate limiter bypass via X-Forwarded-For needs Context.RealIP; gocore never calls it. No v4 fix (checked v4.16.3, 2026-11-09).
+# Fixed in v5.4.0. The vulnerable symbols are the Proxy, Static, Secure and
+# MethodOverride middleware, Context.Scheme and StaticDirectoryHandler; gocore
+# uses none of them.
+GO-2026-6875 2027-01-10 Reverse proxy forwards attacker X-Real-IP; gocore uses no Proxy/Static/Secure/MethodOverride middleware. No v4 fix (checked v4.16.3, 2026-11-09).

@@ -84,8 +84,8 @@ setup-hooks: ## install lefthook's git hooks into .git
 scan-secrets: ## gitleaks over full history, as CI/pre-push do
 	$(BIN)/gitleaks git --redact --no-banner .
 
-vuln: ## govulncheck against the module
-	$(BIN)/govulncheck ./...
+vuln: ## govulncheck against the module, gated by govulncheck.allow
+	go run ./scripts/vulngate $(BIN)/govulncheck govulncheck.allow ./...
 
 sonar: ## opt-in SonarQube scan, on demand only — start SonarQube first: docker compose --profile sonar up -d sonarqube (in devstack)
 	./scripts/sonar-scan.sh
