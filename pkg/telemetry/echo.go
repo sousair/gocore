@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -113,22 +112,12 @@ func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
 	}
 }
 
-// statusOf resolves the response status, mapping a handler error to the code
-// echo's error handler will send (a status-coded error's own code, else 500).
-// v5's sentinel errors (echo.ErrNotFound and friends) are not *echo.HTTPError,
-// so match the echo.HTTPStatusCoder interface they all share.
+// statusOf resolves the status the client gets: the committed wire status if
+// the response was already sent, else the error's status code (500 if it has
+// none), else what the handler wrote.
 func statusOf(c *echo.Context, err error) int {
-	if err != nil {
-		var sc echo.HTTPStatusCoder
-		if errors.As(err, &sc) {
-			return sc.StatusCode()
-		}
-		return http.StatusInternalServerError
-	}
-	if res, uErr := echo.UnwrapResponse(c.Response()); uErr == nil {
-		return res.Status
-	}
-	return http.StatusOK
+	_, status := echo.ResolveResponseStatus(c.Response(), err)
+	return status
 }
 
 // serveProbe runs a skipped-route handler with no span and no RED metric,

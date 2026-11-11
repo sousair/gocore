@@ -216,11 +216,14 @@ func TestEchoMiddleware(t *testing.T) {
 			handler echo.HandlerFunc
 			want    int
 		}{
-			// v5 sentinel errors are not *echo.HTTPError; they share echo.HTTPStatusCoder.
 			"sentinel ErrNotFound": {func(c *echo.Context) error { return echo.ErrNotFound }, http.StatusNotFound},
 			"wrapped HTTPError": {func(c *echo.Context) error {
 				return fmt.Errorf("wrap: %w", echo.NewHTTPError(http.StatusConflict, "dup"))
 			}, http.StatusConflict},
+			"committed 404 then error": {func(c *echo.Context) error {
+				_ = c.JSON(http.StatusNotFound, map[string]string{"error": "missing"})
+				return errors.New("after commit")
+			}, http.StatusNotFound},
 			"written 204": {func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) }, http.StatusNoContent},
 		} {
 			t.Run(name, func(t *testing.T) {
