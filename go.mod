@@ -2,6 +2,8 @@ module github.com/sousair/gocore
 
 go 1.26.10
 
+toolchain go1.26.11
+
 require (
 	github.com/cucumber/godog v0.15.1
 	github.com/cucumber/messages/go/v21 v21.0.1
