@@ -3,37 +3,37 @@ package httpx
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type response struct {
 	Message string `json:"message"`
 }
 
-func NewBadRequestResponse(e echo.Context, err error) error {
+func NewBadRequestResponse(e *echo.Context, err error) error {
 	return e.JSON(http.StatusBadRequest, response{Message: err.Error()})
 }
 
-func NewUnauthorizedResponse(e echo.Context, err error) error {
+func NewUnauthorizedResponse(e *echo.Context, err error) error {
 	return e.JSON(http.StatusUnauthorized, response{Message: err.Error()})
 }
 
-func NewInternalServerErrorResponse(e echo.Context, err error) error {
+func NewInternalServerErrorResponse(e *echo.Context, err error) error {
 	return e.JSON(http.StatusInternalServerError, response{Message: err.Error()})
 }
 
-func NewNotFoundResponse(e echo.Context, err error) error {
+func NewNotFoundResponse(e *echo.Context, err error) error {
 	return e.JSON(http.StatusNotFound, response{Message: err.Error()})
 }
 
-func NewOKResponse(e echo.Context, data any) error {
+func NewOKResponse(e *echo.Context, data any) error {
 	return e.JSON(http.StatusOK, data)
 }
 
-func NewCreatedResponse(e echo.Context, data any) error {
+func NewCreatedResponse(e *echo.Context, data any) error {
 	return e.JSON(http.StatusCreated, data)
 }
 
-func NewNoContentResponse(e echo.Context) error {
+func NewNoContentResponse(e *echo.Context) error {
 	return e.NoContent(http.StatusNoContent)
 }

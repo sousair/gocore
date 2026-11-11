@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -94,7 +95,7 @@ func TestEchoMiddleware(t *testing.T) {
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware())
 		var sawValid bool
-		e.GET("/things/:id", func(c echo.Context) error {
+		e.GET("/things/:id", func(c *echo.Context) error {
 			sawValid = trace.SpanContextFromContext(c.Request().Context()).IsValid()
 			return c.String(http.StatusOK, "ok")
 		})
@@ -142,7 +143,7 @@ func TestEchoMiddleware(t *testing.T) {
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware())
 		var gotTraceID string
-		e.GET("/x", func(c echo.Context) error {
+		e.GET("/x", func(c *echo.Context) error {
 			gotTraceID = trace.SpanContextFromContext(c.Request().Context()).TraceID().String()
 			return c.NoContent(http.StatusOK)
 		})
@@ -174,10 +175,10 @@ func TestEchoMiddleware(t *testing.T) {
 
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware())
-		e.GET("/boom", func(c echo.Context) error {
+		e.GET("/boom", func(c *echo.Context) error {
 			return errors.New("kaboom")
 		})
-		e.HTTPErrorHandler = func(err error, c echo.Context) {
+		e.HTTPErrorHandler = func(c *echo.Context, err error) {
 			_ = c.NoContent(http.StatusInternalServerError)
 		}
 
@@ -210,6 +211,48 @@ func TestEchoMiddleware(t *testing.T) {
 		}
 	})
 
+	t.Run("given handler returns a status-coded error or writes a non-200 status/when request handled/then that status is recorded", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			handler echo.HandlerFunc
+			want    int
+		}{
+			"sentinel ErrNotFound": {func(c *echo.Context) error { return echo.ErrNotFound }, http.StatusNotFound},
+			"wrapped HTTPError": {func(c *echo.Context) error {
+				return fmt.Errorf("wrap: %w", echo.NewHTTPError(http.StatusConflict, "dup"))
+			}, http.StatusConflict},
+			"committed 404 then error": {func(c *echo.Context) error {
+				_ = c.JSON(http.StatusNotFound, map[string]string{"error": "missing"})
+				return errors.New("after commit")
+			}, http.StatusNotFound},
+			"written 204": {func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) }, http.StatusNoContent},
+		} {
+			t.Run(name, func(t *testing.T) {
+				withOTelGlobals(t, sdktrace.NewTracerProvider(), propagation.TraceContext{})
+				buf := withCapturedDefaultLogger(t)
+
+				e := echo.New()
+				e.Use(telemetry.EchoMiddleware())
+				e.GET("/x", tc.handler)
+
+				srv := httptest.NewServer(e)
+				defer srv.Close()
+				resp, err := http.Get(srv.URL + "/x")
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = resp.Body.Close()
+
+				var logRec map[string]any
+				if err := json.Unmarshal(buf.Bytes(), &logRec); err != nil {
+					t.Fatalf("access log not json: %q", buf.String())
+				}
+				if logRec["status"] != float64(tc.want) {
+					t.Fatalf("want status %d in access log, got %v", tc.want, logRec["status"])
+				}
+			})
+		}
+	})
+
 	t.Run("given a handled request/when EchoMiddleware records/then http.server.request.duration histogram gets a data point with route/method/status attrs", func(t *testing.T) {
 		withOTelGlobals(t, sdktrace.NewTracerProvider(), propagation.TraceContext{})
 		withCapturedDefaultLogger(t)
@@ -217,7 +260,7 @@ func TestEchoMiddleware(t *testing.T) {
 
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware())
-		e.GET("/things/:id", func(c echo.Context) error {
+		e.GET("/things/:id", func(c *echo.Context) error {
 			return c.String(http.StatusOK, "ok")
 		})
 
@@ -266,7 +309,7 @@ func TestEchoMiddleware(t *testing.T) {
 
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware())
-		e.GET("/health", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		e.GET("/health", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 		srv := httptest.NewServer(e)
 		defer srv.Close()
 
@@ -294,7 +337,7 @@ func TestEchoMiddleware(t *testing.T) {
 
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware())
-		e.GET("/health", func(c echo.Context) error { return c.NoContent(http.StatusServiceUnavailable) })
+		e.GET("/health", func(c *echo.Context) error { return c.NoContent(http.StatusServiceUnavailable) })
 		srv := httptest.NewServer(e)
 		defer srv.Close()
 
@@ -326,7 +369,7 @@ func TestEchoMiddleware(t *testing.T) {
 
 		e := echo.New()
 		e.Use(telemetry.EchoMiddleware(telemetry.WithSkipRoutes("/livez")))
-		e.GET("/health", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		e.GET("/health", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 		srv := httptest.NewServer(e)
 		defer srv.Close()
 

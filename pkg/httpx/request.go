@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-playground/locales/en"
 	"github.com/go-playground/validator/v10"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/sousair/gocore/pkg/telemetry"
 
 	ut "github.com/go-playground/universal-translator"
@@ -47,7 +47,7 @@ func GetValidator() *validator.Validate {
 	return v
 }
 
-func NewRequest[T any](e echo.Context) (*T, error) {
+func NewRequest[T any](e *echo.Context) (*T, error) {
 	reqValidator := GetValidator()
 	var req T
 
