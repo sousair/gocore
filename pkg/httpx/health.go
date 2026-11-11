@@ -3,12 +3,12 @@ package httpx
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type HealthCheck struct {
 	Key  string
-	Func func(c echo.Context) error
+	Func func(c *echo.Context) error
 }
 
 type HealthStatus string
@@ -24,7 +24,7 @@ type CheckStatus struct {
 }
 
 func WithHealthRoute(server *echo.Echo, checks ...*HealthCheck) {
-	server.GET("/health", func(c echo.Context) error {
+	server.GET("/health", func(c *echo.Context) error {
 		checkMap := make(map[string]CheckStatus)
 		overallStatus := HealthStatusOK
 

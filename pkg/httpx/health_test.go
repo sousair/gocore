@@ -7,14 +7,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func TestWithHealthRoute_AllChecksPass_Returns200(t *testing.T) {
 	server := echo.New()
 	WithHealthRoute(server, &HealthCheck{
 		Key:  "db",
-		Func: func(c echo.Context) error { return nil },
+		Func: func(c *echo.Context) error { return nil },
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -41,7 +41,7 @@ func TestWithHealthRoute_CheckFails_Returns503(t *testing.T) {
 	server := echo.New()
 	WithHealthRoute(server, &HealthCheck{
 		Key:  "db",
-		Func: func(c echo.Context) error { return errors.New("connection refused") },
+		Func: func(c *echo.Context) error { return errors.New("connection refused") },
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)

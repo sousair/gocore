@@ -1,12 +1,13 @@
 package telemetry
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -65,7 +66,7 @@ func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
 		panic(err)
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if _, skip := cfg.skipRoutes[c.Path()]; skip {
 				return serveProbe(c, next)
 			}
@@ -113,21 +114,27 @@ func EchoMiddleware(opts ...EchoOption) echo.MiddlewareFunc {
 }
 
 // statusOf resolves the response status, mapping a handler error to the code
-// echo's error handler will send (an *echo.HTTPError's own code, else 500).
-func statusOf(c echo.Context, err error) int {
+// echo's error handler will send (a status-coded error's own code, else 500).
+// v5's sentinel errors (echo.ErrNotFound and friends) are not *echo.HTTPError,
+// so match the echo.HTTPStatusCoder interface they all share.
+func statusOf(c *echo.Context, err error) int {
 	if err != nil {
-		if he, ok := err.(*echo.HTTPError); ok {
-			return he.Code
+		var sc echo.HTTPStatusCoder
+		if errors.As(err, &sc) {
+			return sc.StatusCode()
 		}
 		return http.StatusInternalServerError
 	}
-	return c.Response().Status
+	if res, uErr := echo.UnwrapResponse(c.Response()); uErr == nil {
+		return res.Status
+	}
+	return http.StatusOK
 }
 
 // serveProbe runs a skipped-route handler with no span and no RED metric,
 // emitting a single WARN access-log only when the probe itself fails so a
 // DB-down readiness probe stays visible while healthy probes go silent.
-func serveProbe(c echo.Context, next echo.HandlerFunc) error {
+func serveProbe(c *echo.Context, next echo.HandlerFunc) error {
 	err := next(c)
 	status := statusOf(c, err)
 	if status >= 400 || err != nil {
