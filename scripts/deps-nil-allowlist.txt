@@ -1,0 +1,3 @@
+# Allowed `.deps.X == nil` / `.deps.X != nil` lines for scripts/deps-nil-gate.sh.
+# One fixed string per line, matched against "path: code". Every entry needs a
+# reason in the PR that adds it.
