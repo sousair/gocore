@@ -1,5 +1,5 @@
 // Package embedding defines the Embedder port for turning text into dense
-// vectors. Concrete implementations live in sub-packages (embedding/openai, embedding/openrouter).
+// vectors. Concrete implementations live in sub-packages.
 package embedding
 
 import "context"
