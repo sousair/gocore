@@ -1,8 +1,24 @@
 version: "2"
+# Tier-1 code-shape lint (ADR _global:decisions/code-shape-001, decision 5).
+# Every finding is an error. issues.new-from-merge-base ratchets it to new or
+# changed code, so existing debt does not fail the build.
 linters:
   enable:
     - sloglint
     - forbidigo
+    - exhaustruct
+    - revive
+    - varnamelen
+    - funlen
+    - gocognit
+    - nestif
+    - gochecknoglobals
+    - interfacebloat
+    - depguard
+    - nilnil
+    - gocritic
+    - dupl
+    - nolintlint
   settings:
     sloglint:
       context: all
@@ -15,3 +31,52 @@ linters:
           msg: use slog with context
         - pattern: ^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
           msg: legacy log is banned; use slog + telemetry helpers
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    exhaustruct:
+      include: ['.+\.Dependencies$', '.+\.Deps$']
+    varnamelen:
+      max-distance: 6
+      min-name-length: 3
+      check-receiver: false
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+      ignore-names: [ctx, err, tx, id, ok, db, t, tb, b, i, j, k, w, r, n, wg, mu, fn, op, q]
+      ignore-decls: ["t *testing.T", "w http.ResponseWriter", "r *http.Request", "c echo.Context", "c *echo.Context"]
+    funlen: {lines: 80, statements: 50, ignore-comments: true}
+    gocognit: {min-complexity: 20}
+    nestif: {min-complexity: 5}
+    interfacebloat: {max: 6}
+    revive:
+      rules:
+        - name: exported # only the stutter half; doc-comment hits are excluded below
+        - name: var-naming
+        - name: receiver-naming
+        - name: import-shadowing
+        - name: confusing-naming
+        - name: flag-parameter
+        - name: argument-limit
+          arguments: [5]
+        - name: function-result-limit
+          arguments: [3]
+        - name: file-length-limit
+          arguments: [{max: 400, skipComments: true, skipBlankLines: true}]
+        - name: package-naming # bans util/common/helpers
+    depguard:
+      rules:
+        core-is-infra-free:
+          files: ['**/internal/core/**']
+          deny:
+            - {pkg: github.com/jackc/pgx, desc: core is infra-free}
+            - {pkg: github.com/labstack/echo, desc: core is infra-free}
+            - {pkg: connectrpc.com/connect, desc: core is infra-free}
+  exclusions:
+    rules:
+      - {linters: [revive], text: "should have comment|comment on exported"}
+      # exhaustruct stays on in tests: partial Dependencies literals are the nil source.
+      - {path: _test\.go, linters: [funlen, dupl, gochecknoglobals, varnamelen]}
+      - {path: '(\.sql\.go|\.pb\.go|\.connect\.go)$', linters: [revive, varnamelen, funlen, gocognit, dupl, exhaustruct]}
+issues:
+  new-from-merge-base: origin/master

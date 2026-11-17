@@ -75,8 +75,11 @@ test:
 # go vet is not run separately: golangci-lint's govet linter is on by default (the
 # config sets no `default:` key) and enables every analyzer but fieldalignment and
 # shadow, so a separate pass re-type-checks every package to add nothing.
-lint: ## golangci-lint (matches the CI gate)
+# The deps-nil gate diffs against origin/master, as golangci-lint's
+# new-from-merge-base ratchet does, so both need that ref fetched.
+lint: ## golangci-lint + deps-nil gate (matches the CI gate)
 	$(BIN)/golangci-lint run ./...
+	scripts/deps-nil-gate.sh
 
 setup-hooks: ## install lefthook's git hooks into .git
 	$(BIN)/lefthook install
