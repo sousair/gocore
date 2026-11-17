@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fails when the diff against the merge base adds a non-test `.deps.X == nil` or
-# `.deps.X != nil` line (ADR _global:decisions/code-shape-001, decision 2): every
+# Fails when the diff against the merge base adds a non-test `deps.X == nil` or
+# `deps.X != nil` line (ADR _global:decisions/code-shape-001, decision 2): every
 # Dependencies field is required, so a nil guard means a dependency was left
 # optional. Existing guards are not touched; only added lines count.
 #
@@ -18,10 +18,14 @@ if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
 	exit 1
 fi
 
-added="$(git diff --merge-base "$base_ref" -U0 -- '*.go' ':!*_test.go' |
+# Captured first: a failing git diff inside a pipeline would be masked by `|| true`.
+diff="$(git diff --merge-base "$base_ref" -U0 -- '*.go' ':!*_test.go')"
+
+# Matches both `s.deps.X` (methods) and bare `deps.X` (factories taking deps).
+added="$(printf '%s\n' "$diff" |
 	awk '/^\+\+\+ b\// { file = substr($0, 7); next }
 	     /^\+/ && !/^\+\+\+/ { print file ": " substr($0, 2) }' |
-	grep -E '\.deps\.[A-Za-z]+ (!=|==) nil' || true)"
+	grep -E '(^|[^A-Za-z0-9_])deps\.[A-Za-z0-9_]+ (!=|==) nil' || true)"
 
 if [ -n "$added" ] && [ -f "$allowlist" ]; then
 	patterns="$(grep -vE '^[[:space:]]*(#|$)' "$allowlist" || true)"
